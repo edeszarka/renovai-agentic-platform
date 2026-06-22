@@ -1,4 +1,4 @@
-# RenovAI — Renoválási Tanácsadó és Költségbecslő
+# RenovAI — Renovation Advisor & Cost Estimator
 
 A proof-of-concept tool that helps Hungarian apartment buyers who are considering purchasing flats that need renovation. It combines machine learning for cost estimation with a RAG-based advisory system using Gemini.
 

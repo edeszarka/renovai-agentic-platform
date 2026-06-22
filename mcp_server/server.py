@@ -366,5 +366,27 @@ async def query_renovation_market(question_hu: str) -> dict:
         }
 
 
+# SSE/HTTP app for Cloud Run deployments
+sse_app = mcp.sse_app()
+
+# Cloud Run forwards requests with the public hostname in the Host header.
+# Starlette's default TrustedHostMiddleware (added by MCP's sse_app) rejects
+# non-localhost hosts, so we override it to allow all.
+from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
+for mw in sse_app.user_middleware:
+    if mw.cls is TrustedHostMiddleware:
+        mw.options["allowed_hosts"] = ["*"]
+        break
+sse_app.middleware_stack = None  # force rebuild on next request
+
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    is_cloud_run = os.getenv("CLOUD_RUN", "").lower() in ("true", "1", "yes")
+    port = int(os.getenv("PORT", 8080))
+
+    if is_cloud_run:
+        import uvicorn
+        logging.basicConfig(level=logging.INFO)
+        logger.info("Starting RenovAI MCP server on SSE transport (Cloud Run) — port %d", port)
+        uvicorn.run(sse_app, host="0.0.0.0", port=port, log_level="info")
+    else:
+        mcp.run(transport="stdio")
