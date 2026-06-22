@@ -229,3 +229,72 @@ def chunk_all(
             all_chunks.extend(chunk_markdown_file(file))
             
     return all_chunks
+
+
+def chunk_transcript_file(
+    txt_path: Path,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> List[Chunk]:
+    """Chunks a transcript .txt file where each line is one video's transcript."""
+    content = txt_path.read_text(encoding="utf-8")
+    lines = [l.strip() for l in content.split("\n") if l.strip()]
+    chunks = []
+    chunk_counter = 0
+
+    for line in lines:
+        topic = line[:80].strip()
+        if count_tokens(line) <= max_tokens:
+            chunk_counter += 1
+            chunks.append(Chunk(
+                chunk_id=f"{txt_path.stem}_video_{chunk_counter}",
+                source_file=txt_path.name,
+                source_type="transcript",
+                section=topic,
+                content=line,
+                metadata={"source_type": "transcript", "topic": topic, "source_file": txt_path.name},
+            ))
+        else:
+            sentences = _split_into_sentences(line)
+            current_chunk = []
+            current_tokens = 0
+            for sent in sentences:
+                st = count_tokens(sent)
+                if current_tokens + st > max_tokens and current_chunk:
+                    chunk_counter += 1
+                    text = " ".join(current_chunk)
+                    chunks.append(Chunk(
+                        chunk_id=f"{txt_path.stem}_video_{chunk_counter}",
+                        source_file=txt_path.name,
+                        source_type="transcript",
+                        section=topic,
+                        content=text,
+                        metadata={"source_type": "transcript", "topic": topic, "source_file": txt_path.name},
+                    ))
+                    current_chunk = [sent]
+                    current_tokens = st
+                else:
+                    current_chunk.append(sent)
+                    current_tokens += st
+            if current_chunk:
+                chunk_counter += 1
+                chunks.append(Chunk(
+                    chunk_id=f"{txt_path.stem}_video_{chunk_counter}",
+                    source_file=txt_path.name,
+                    source_type="transcript",
+                    section=topic,
+                    content=" ".join(current_chunk),
+                    metadata={"source_type": "transcript", "topic": topic, "source_file": txt_path.name},
+                ))
+
+    return chunks
+
+
+def chunk_all_transcripts(
+    transcripts_dir: Path,
+) -> List[Chunk]:
+    """Finds and chunks all transcript .txt files in the provided directory."""
+    all_chunks = []
+    if transcripts_dir.exists():
+        for file in transcripts_dir.glob("*.txt"):
+            all_chunks.extend(chunk_transcript_file(file))
+    return all_chunks
