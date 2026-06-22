@@ -53,3 +53,7 @@ Thumbs.db
 *.pyd
 .ruff_cache/
 .mypy_cache/
+
+# Secrets / keys
+priv
+priv.pub

@@ -25,14 +25,21 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic",
     "aiosqlite",
+    "mcp",
+    "tenacity",
+    "diskcache",
 ]
+
+[project.optional-dependencies]
+adk = ["google-adk"]
 
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["renovai"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["renovai*", "mcp_server*", "sandbox*", "orchestrator*", "demo*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,30 @@
+# RenovAI Sandbox Container
+#
+# Production-grade isolation for buyer-uploaded XLSX parsing.
+# Runs the sandboxed_parse.py entry point in a minimal container with:
+#   - No network access (--network=none at runtime)
+#   - Read-only root filesystem
+#   - A single mounted input volume for the XLSX + output directory
+#   - Seccomp profile restricting unnecessary syscalls
+#
+# Usage:
+#   docker build -t renovai-sandbox -f sandbox/Dockerfile.sandbox .
+#   docker run --rm --network=none --read-only \
+#     -v /path/to/input.xlsx:/input/quote.xlsx:ro \
+#     -v /path/to/output:/output \
+#     renovai-sandbox /input/quote.xlsx /output/result.json
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install only the minimum dependencies needed for parsing
+COPY pyproject.toml .
+RUN pip install --no-cache-dir openpyxl pydantic>=2.0 python-dotenv
+
+# Copy only the parser and its dependencies
+COPY renovai/ingestion/ ./renovai/ingestion/
+COPY renovai/__init__.py ./renovai/__init__.py
+COPY sandbox/sandboxed_parse.py ./sandboxed_parse.py
+
+ENTRYPOINT ["python", "sandboxed_parse.py"]
