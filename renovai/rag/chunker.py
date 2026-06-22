@@ -192,10 +192,12 @@ def chunk_markdown_file(
     # Split by H2
     sections = _split_by_headings(body, level=2)
     chunks = []
+    chunk_counter = 0
     
     for sec_title, sec_content in sections:
         blocks = split_section(sec_title, sec_content, content_max, overlap_tokens)
         for sub_title, sub_content in blocks:
+            chunk_counter += 1
             chunk_metadata = {
                 **metadata,
                 "section": sub_title,
@@ -203,7 +205,7 @@ def chunk_markdown_file(
                 "source_file": md_path.name
             }
             
-            chunk_id = f"{md_path.stem}_{sanitize_id(sub_title)}"
+            chunk_id = f"{md_path.stem}_{sanitize_id(sub_title)}_{chunk_counter}"
             
             chunks.append(Chunk(
                 chunk_id=chunk_id,
