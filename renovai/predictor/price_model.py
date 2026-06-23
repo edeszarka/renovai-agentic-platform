@@ -255,5 +255,7 @@ def find_similar_quotes(
         except Exception:
             continue
             
+    # Filter out quotes with zero/invalid grand totals (parsing failures)
+    all_feats = [f for f in all_feats if f.get("grand_total_adjusted")]
     all_feats.sort(key=lambda x: x["distance"])
     return all_feats[:top_k]

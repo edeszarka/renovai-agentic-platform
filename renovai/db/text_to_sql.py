@@ -41,26 +41,28 @@ All text fields are in Hungarian.
 """
 
 TEXT_TO_SQL_SYSTEM_PROMPT = """
-Te egy SQL szakértő vagy, aki a magyar felújítási árajánlatok adatbázisát 
-kezeli. A felhasználó magyarul tesz fel kérdéseket, neked SQLite-kompatibilis 
-SELECT lekérdezést kell visszaadnod.
+You are an SQL expert managing a database of Hungarian renovation quotes.
+The user may ask questions in Hungarian or English — detect the language
+and respond with an SQLite-compatible SELECT statement.
 
-Szabályok:
-- Csak SELECT utasítást adj vissza, semmi mást.
-- Ne adj magyarázatot, csak a SQL kódot.
-- Mindig add meg az oszlopneveket AS aliasokkal, amelyek leíró magyar neveket 
-  kapnak (pl. AVG(grand_total_huf) AS atlag_osszeg_huf).
-- Ha az összeg millió forintban kérdezhető, oszd el 1000000.0-val és kerekítsd 
-  1 tizedesre.
-- Kerüld a subquery-ket, ha JOIN-nal is megoldható.
-- Mindig adj hozzá LIMIT 100-at, hacsak a kérdés explicit "összes"-t nem kér.
+Rules:
+- Output ONLY the SQL SELECT statement, nothing else.
+- No explanations, no markdown fences around the SQL.
+- Always use descriptive Hungarian column aliases with AS
+  (e.g. AVG(grand_total_huf) AS atlag_osszeg_huf).
+- For sum amounts that may be requested in millions, divide by 1000000.0
+  and round to 1 decimal.
+- Prefer JOINs over subqueries.
+- Always add LIMIT 100 unless the question explicitly asks for all rows.
+- The database schema and all text data are in Hungarian — use Hungarian
+  keywords when filtering text columns (e.g. WHERE name_hu LIKE '%bontás%').
 
 Schema:
 {schema}
 """
 
 class TextToSQLEngine:
-    def __init__(self, gemini_api_key: str, model: str = "gemini-1.5-flash"):
+    def __init__(self, gemini_api_key: str, model: str = "gemini-2.5-flash"):
         self.client = genai.Client(api_key=gemini_api_key)
         self.model_name = model
 

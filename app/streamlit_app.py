@@ -1,0 +1,754 @@
+"""
+RenovAI — Streamlit frontend for the renovation advisory system.
+Calls renovai/ Python functions directly (no MCP server needed).
+"""
+
+import asyncio
+import concurrent.futures
+import logging
+import os
+import re
+from datetime import date
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+from renovai.api.config import AppConfig
+from renovai.predictor.feature_extractor import (
+    ApartmentInput,
+    apartment_input_to_features,
+)
+from renovai.predictor.price_model import predict, find_similar_quotes
+from renovai.advisor.pre_purchase import generate_report, ApartmentProfile
+from renovai.rag.vector_store import VectorStoreConfig, RenovAIVectorStore
+from renovai.rag.embedder import EmbedderConfig
+from renovai.rag.retriever import RetrievalConfig
+from renovai.rag.gemini_client import GeminiConfig
+from renovai.rag.pipeline import RAGPipeline
+from renovai.ingestion.inflation_calc import load_price_index as _load_price_index
+from renovai.db.text_to_sql import TextToSQLEngine
+from renovai.db.session import get_engine, get_session_maker
+
+logger = logging.getLogger("renovai-streamlit")
+
+LANG = {
+    "HU": {
+        "page_title": "RenovAI — Felújítási tanácsadó",
+        "sidebar.title": "🏠 RenovAI",
+        "sidebar.tagline": "Ingyenes felújítási tanácsadó első lakásvásárlóknak",
+        "nav.cost": "🧮 Költségbecslés",
+        "nav.advisory": "🔍 Vásárlói átvilágítás",
+        "nav.market": "📊 Piaci adatok",
+        "sidebar.data_source": "Az adatok 30 valós felújítási árajánlaton alapulnak, 2023–2026 között, Budapest különböző kerületeiben.",
+        "sidebar.disclaimer": "⚠️ Ez egy POC eszköz. Az eredmények tájékoztató jellegűek, nem helyettesítik a szakértői véleményt.",
+        "lang.label": "Nyelv",
+        "t1.subtitle": "A lakás adatai",
+        "t1.district": "Kerület",
+        "t1.district_fmt": "Budapest {}. kerület",
+        "t1.area": "Alapterület (m²)",
+        "t1.rooms": "Szobák száma",
+        "t1.era": "Építési időszak (közelítő)",
+        "t1.era_unknown": "Ismeretlen",
+        "t1.era_fmt": "~{}as évek",
+        "t1.scope_title": "Felújítási munkák",
+        "t1.scope_hint": "Jelöld be, melyik munkára van szükség:",
+        "t1.demolition": "Bontás",
+        "t1.plumbing": "Víz és fűtés",
+        "t1.electrical": "Villanyszerelés",
+        "t1.tiling": "Burkolás",
+        "t1.plastering": "Glettelés/festés",
+        "t1.flooring": "Parketta",
+        "t1.ac": "Klíma",
+        "t1.slag": "⚠️ Kohósalak gyanú",
+        "t1.slag_help": "Ha régi panelépületben az aljzat kohósalakot tartalmazhat, a bontás lényegesen drágább.",
+        "t1.button": "Becslés futtatása →",
+        "t1.spinner": "Hasonló árajánlatok elemzése...",
+        "t1.result_title": "Becsült felújítási költség",
+        "t1.metric_low": "Alacsony becslés",
+        "t1.metric_low_help": "Optimista eset, minden simán megy",
+        "t1.metric_mid": "📌 Várható költség",
+        "t1.metric_mid_help": "Erre tervezz. P75 percentilis.",
+        "t1.metric_high": "Magas becslés",
+        "t1.metric_high_help": "Tartalékold ezt az összeget is ha kohósalak gyanú van",
+        "t1.per_sqm": "Átlagosan **{per_sqm} Ft/m²** | Inflációs alap: {date}",
+        "t1.similar_title": "Hasonló felújítások az adatbázisból",
+        "t1.similar_hint": "Ezeken az árajánlatokon alapul a becslés (inflációval korrigálva).",
+        "t1.error": "Hiba történt a becslés során. Kérjük próbálja újra, vagy ellenőrizze a .env konfigurációt.",
+        "t2.subtitle": "A lakás jellemzői",
+        "t2.district": "Kerület",
+        "t2.area": "Alapterület (m²)",
+        "t2.rooms": "Szobák száma",
+        "t2.building_type": "Épület típusa",
+        "t2.building_type_brick": "Téglaépület",
+        "t2.building_type_panel": "Panelház",
+        "t2.building_type_new": "Újépítés",
+        "t2.building_type_unknown": "Ismeretlen",
+        "t2.era": "Építési időszak",
+        "t2.era_1945_elott": "1945 előtt",
+        "t2.era_1945_1970": "1945–1970",
+        "t2.era_1970_1990": "1970–1990",
+        "t2.era_1990_2010": "1990–2010",
+        "t2.era_2010_utan": "2010 után",
+        "t2.condition": "Jelenlegi állapot",
+        "t2.condition_bad": "😰 Nagyon rossz",
+        "t2.condition_mid": "😐 Közepes",
+        "t2.condition_ok": "🙂 Lakható",
+        "t2.known_issues": "Ismert problémák (opcionális)",
+        "t2.known_issues_ph": "pl. penész a fürdőben, régi elektromos hálózat, repedések a falakon...",
+        "t2.has_visited": "Személyesen jártam a lakásban",
+        "t2.asking_price": "Kért vételár (millió Ft, opcionális)",
+        "t2.button": "Tanácsadói jelentés generálása →",
+        "t2.wait": "A jelentés generálása 20–40 másodpercet vesz igénybe. Az AI elemzi a hasonló felújítási eseteket...",
+        "t2.spinner": "Elemzés folyamatban...",
+        "t2.no_rag": "A RAG pipeline nem érhető el. Futtassa az adatbetöltést először.",
+        "t2.risk_label": "Kockázati szint: {risk}",
+        "t2.cost_label": "Becsült felújítási cost: **{low} – {high}**",
+        "t2.expander_questions": "❓ Kérdések az eladónak ({n} tétel)",
+        "t2.expander_inspection": "🔍 Helyszíni ellenőrzési lista ({n} tétel)",
+        "t2.expander_redflags": "🚩 Piros zászlók ({n} tétel)",
+        "t2.expander_sources": "📚 Felhasznált adatforrások",
+        "t2.why": "Miért fontos: {why}",
+        "t2.source": "📎 Forrás: `{src}`",
+        "t2.error": "Hiba történt a jelentés generálása során. Kérjük próbálja újra, vagy ellenőrizze a .env konfigurációt.",
+        "t2.tech_detail": "🔧 Technikai részletek",
+        "t3.title": "Kérdezz az adatbázisból",
+        "t3.hint": "Tegyél fel kérdéseket magyarul a 30 felújítási árajánlatot tartalmazó adatbázisnak.",
+        "t3.examples": "Példakérdések:",
+        "t3.ex_q1": "Átlagosan mennyibe kerül egy felújítás a 8. kerületben?",
+        "t3.ex_q2": "Melyik munkafajta a legdrágább általában?",
+        "t3.ex_q3": "Hány árajánlatban szerepel kohósalak probléma?",
+        "t3.ex_q4": "Mi a legolcsóbb és legdrágább ajánlat összege?",
+        "t3.ex_q5": "Milyen arányban oszlik meg a munkadíj és az anyag?",
+        "t3.ex_q6": "Mennyi az átlagos felújítási idő hetekben?",
+        "t3.input": "A kérdésed:",
+        "t3.input_ph": "pl. Melyik kerületben a legdrágább a felújítás?",
+        "t3.button": "Lekérdezés →",
+        "t3.spinner": "SQL generálása és futtatása...",
+        "t3.sql_label": "🔧 Generált SQL lekérdezés",
+        "t3.rows_found": "{n} sor találat",
+        "t3.no_data": "Nem található adat erre a lekérdezésre.",
+        "t3.error": "Hiba történt a lekérdezés során. Kérjük próbálja újra.",
+        "priority.kritikus": "kritikus",
+        "priority.fontos": "fontos",
+        "priority.erdemes": "érdemes_megnézni",
+        "anon.address": "Budapest {dist}. kerület, ~{area} m²",
+    },
+    "EN": {
+        "page_title": "RenovAI — Renovation Advisor",
+        "sidebar.title": "🏠 RenovAI",
+        "sidebar.tagline": "Free renovation advisor for first-time home buyers",
+        "nav.cost": "🧮 Cost Estimator",
+        "nav.advisory": "🔍 Due Diligence",
+        "nav.market": "📊 Market Data",
+        "sidebar.data_source": "Data is based on 30 real renovation quotes from 2023–2026 across Budapest districts.",
+        "sidebar.disclaimer": "⚠️ This is a POC tool. Results are for informational purposes only and do not replace professional advice.",
+        "lang.label": "Language",
+        "t1.subtitle": "Apartment Details",
+        "t1.district": "District",
+        "t1.district_fmt": "Budapest District {}",
+        "t1.area": "Floor Area (m²)",
+        "t1.rooms": "Number of Rooms",
+        "t1.era": "Building Era (approx.)",
+        "t1.era_unknown": "Unknown",
+        "t1.era_fmt": "~{}s",
+        "t1.scope_title": "Renovation Scope",
+        "t1.scope_hint": "Select which work is needed:",
+        "t1.demolition": "Demolition",
+        "t1.plumbing": "Plumbing & Heating",
+        "t1.electrical": "Electrical",
+        "t1.tiling": "Tiling",
+        "t1.plastering": "Plastering & Painting",
+        "t1.flooring": "Flooring",
+        "t1.ac": "A/C",
+        "t1.slag": "⚠️ Suspected Slag",
+        "t1.slag_help": "In older panel buildings the subfloor may contain slag, significantly increasing demolition costs.",
+        "t1.button": "Run Estimate →",
+        "t1.spinner": "Analyzing similar quotes...",
+        "t1.result_title": "Estimated Renovation Cost",
+        "t1.metric_low": "Low Estimate",
+        "t1.metric_low_help": "Optimistic scenario, everything goes smoothly",
+        "t1.metric_mid": "📌 Expected Cost",
+        "t1.metric_mid_help": "Plan for this. P75 percentile.",
+        "t1.metric_high": "High Estimate",
+        "t1.metric_high_help": "Budget this amount if slag is suspected",
+        "t1.per_sqm": "Average **{per_sqm} Ft/m²** | Inflation base: {date}",
+        "t1.similar_title": "Similar Renovations in Database",
+        "t1.similar_hint": "The estimate is based on these quotes (inflation-adjusted).",
+        "t1.error": "An error occurred during estimation. Please try again or check your .env configuration.",
+        "t2.subtitle": "Property Details",
+        "t2.district": "District",
+        "t2.area": "Floor Area (m²)",
+        "t2.rooms": "Number of Rooms",
+        "t2.building_type": "Building Type",
+        "t2.building_type_brick": "Brick Building",
+        "t2.building_type_panel": "Panel Block",
+        "t2.building_type_new": "New Build",
+        "t2.building_type_unknown": "Unknown",
+        "t2.era": "Building Era",
+        "t2.era_1945_elott": "Before 1945",
+        "t2.era_1945_1970": "1945–1970",
+        "t2.era_1970_1990": "1970–1990",
+        "t2.era_1990_2010": "1990–2010",
+        "t2.era_2010_utan": "After 2010",
+        "t2.condition": "Current Condition",
+        "t2.condition_bad": "😰 Very Poor",
+        "t2.condition_mid": "😐 Fair",
+        "t2.condition_ok": "🙂 Livable",
+        "t2.known_issues": "Known Issues (optional)",
+        "t2.known_issues_ph": "e.g. mold in bathroom, old electrical wiring, cracks in walls...",
+        "t2.has_visited": "I have visited the apartment in person",
+        "t2.asking_price": "Asking Price (million HUF, optional)",
+        "t2.button": "Generate Advisory Report →",
+        "t2.wait": "Report generation takes 20–40 seconds. The AI is analyzing similar renovation cases...",
+        "t2.spinner": "Analysis in progress...",
+        "t2.no_rag": "RAG pipeline is not available. Run data ingestion first.",
+        "t2.risk_label": "Risk Level: {risk}",
+        "t2.cost_label": "Estimated renovation cost: **{low} – {high}**",
+        "t2.expander_questions": "❓ Questions for the Seller ({n} items)",
+        "t2.expander_inspection": "🔍 On-site Inspection Checklist ({n} items)",
+        "t2.expander_redflags": "🚩 Red Flags ({n} items)",
+        "t2.expander_sources": "📚 Data Sources Used",
+        "t2.why": "Why it matters: {why}",
+        "t2.source": "📎 Source: `{src}`",
+        "t2.error": "An error occurred while generating the report. Please try again or check your .env configuration.",
+        "t2.tech_detail": "🔧 Technical Details",
+        "t3.title": "Query the Database",
+        "t3.hint": "Ask questions in Hungarian about the database of 30 renovation quotes.",
+        "t3.examples": "Example Questions:",
+        "t3.ex_q1": "What's the average renovation cost in District 8?",
+        "t3.ex_q2": "Which work type is most expensive on average?",
+        "t3.ex_q3": "How many quotes mention slag complications?",
+        "t3.ex_q4": "What are the cheapest and most expensive quote totals?",
+        "t3.ex_q5": "What's the labor-to-material cost ratio?",
+        "t3.ex_q6": "What's the average renovation duration in weeks?",
+        "t3.input": "Your Question:",
+        "t3.input_ph": "e.g. Which district has the most expensive renovations?",
+        "t3.button": "Run Query →",
+        "t3.spinner": "Generating SQL and running query...",
+        "t3.sql_label": "🔧 Generated SQL Query",
+        "t3.rows_found": "{n} rows found",
+        "t3.no_data": "No data found for this query.",
+        "t3.error": "An error occurred during the query. Please try again.",
+        "priority.kritikus": "critical",
+        "priority.fontos": "important",
+        "priority.erdemes": "worth checking",
+        "anon.address": "Budapest Dist. {dist}, ~{area} m²",
+    },
+}
+
+PRIORITY_ORDER = ["kritikus", "fontos", "érdemes_megnézni"]
+
+PII_COLUMNS = {"address", "address_raw", "file_name", "file"}
+
+
+st.set_page_config(
+    page_title="RenovAI — Felújítási tanácsadó",
+    page_icon="🏠",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+cfg = AppConfig()
+
+
+def _(key: str, **kwargs) -> str:
+    lang = st.session_state.get("lang", "HU")
+    val = LANG.get(lang, LANG["HU"]).get(key, key)
+    if kwargs:
+        return val.format(**kwargs)
+    return val
+
+
+def fmt_huf(n: int) -> str:
+    return f"{n:,} Ft".replace(",", " ")
+
+
+def _anonymize_address(addr) -> str:
+    lang = st.session_state.get("lang", "HU")
+    if isinstance(addr, (int, float)):
+        fmt = LANG[lang]["t1.district_fmt"]
+        return fmt.format(int(addr))
+    m = re.search(r"(\d+)\.?\s*(?:kerület|ker|district)", str(addr))
+    if m:
+        return f"Budapest {m.group(1)}. kerület"
+    return f"Budapest {addr}. kerület" if isinstance(addr, (int, float)) else "Budapest (anon.)"
+
+
+def _scrub_df(df: pd.DataFrame) -> pd.DataFrame:
+    drop_cols = [c for c in PII_COLUMNS if c in df.columns]
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+    return df
+
+
+def _anonymize_source(src: str) -> str:
+    parts = src.replace("\\", "/").split("/")
+    relevant = [p for p in parts if "kerület" in p.lower() or "district" in p.lower() or "m2" in p.lower() or "m²" in p.lower()]
+    if relevant:
+        return relevant[-1]
+    filename = parts[-1] if parts else src
+    filename = re.sub(r"\b(\d{1,2})\s*\.\s*kerület", r"\1. district", filename)
+    return filename
+
+
+@st.cache_resource
+def load_price_index():
+    return _load_price_index(
+        Path(cfg.inflation_materials_csv),
+        Path(cfg.inflation_labor_csv),
+    )
+
+
+@st.cache_resource
+def load_sql_resources():
+    db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
+    engine = get_engine(db_url)
+    sm = get_session_maker(engine)
+    t2s = TextToSQLEngine(gemini_api_key=cfg.google_api_key, model=cfg.gemini_fast_model)
+    return t2s, sm
+
+
+@st.cache_resource
+def load_rag_pipeline():
+    chroma_dir = cfg.chroma_dir
+    if not Path(chroma_dir).exists():
+        return None
+    vs_config = VectorStoreConfig(persist_dir=chroma_dir)
+    vector_store = RenovAIVectorStore(vs_config)
+    emb_config = EmbedderConfig(api_key=cfg.google_api_key)
+    ret_config = RetrievalConfig()
+    gem_config = GeminiConfig(api_key=cfg.google_api_key)
+    return RAGPipeline(vector_store, emb_config, ret_config, gem_config)
+
+
+def _run_async(coro):
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
+async def _run_sql_query(question: str, engine: TextToSQLEngine, sm) -> dict:
+    async with sm() as session:
+        return await engine.query(question, session)
+
+
+if "price_index" not in st.session_state:
+    st.session_state.price_index = load_price_index()
+if "sql_question" not in st.session_state:
+    st.session_state.sql_question = ""
+if "sql_resources" not in st.session_state:
+    st.session_state.sql_resources = load_sql_resources()
+if "rag_pipeline" not in st.session_state:
+    st.session_state.rag_pipeline = load_rag_pipeline()
+if "lang" not in st.session_state:
+    st.session_state.lang = "HU"
+
+sql_engine, session_maker = st.session_state.sql_resources
+
+# ── Sidebar ──────────────────────────────────────────────────────
+
+with st.sidebar:
+    st.markdown(f"## {_('sidebar.title')}")
+    st.markdown(f"*{_('sidebar.tagline')}*")
+    st.divider()
+
+    tab_selection = st.radio(
+        "nav",
+        [_("nav.cost"), _("nav.advisory"), _("nav.market")],
+        label_visibility="collapsed",
+        format_func=lambda x: x,
+    )
+    st.divider()
+    st.caption(_("sidebar.data_source"))
+    st.divider()
+    st.caption(_("sidebar.disclaimer"))
+    st.divider()
+    st.selectbox(
+        _("lang.label"),
+        options=["HU", "EN"],
+        key="lang",
+        format_func=lambda x: {"HU": "🇭🇺 Magyar", "EN": "🇬🇧 English"}[x],
+        label_visibility="collapsed",
+    )
+
+# ── Tab 1: Cost Estimator ───────────────────────────────────────
+
+if tab_selection == _("nav.cost"):
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader(_("t1.subtitle"))
+
+        district = st.selectbox(
+            _("t1.district"),
+            options=list(range(1, 23)),
+            format_func=lambda x: _("t1.district_fmt").format(x),
+        )
+
+        area_sqm = st.number_input(
+            _("t1.area"), min_value=20, max_value=200, value=55, step=5
+        )
+
+        num_rooms = st.number_input(
+            _("t1.rooms"), min_value=1, max_value=8, value=2
+        )
+
+        building_era = st.selectbox(
+            _("t1.era"),
+            options=[None, 1900, 1930, 1960, 1975, 1990, 2000, 2010],
+            format_func=lambda x: _("t1.era_unknown")
+            if x is None
+            else _("t1.era_fmt").format(x),
+        )
+
+        st.subheader(_("t1.scope_title"))
+        st.caption(_("t1.scope_hint"))
+
+        scope_cols = st.columns(2)
+        with scope_cols[0]:
+            needs_demolition = st.checkbox(_("t1.demolition"), value=True)
+            needs_plumbing = st.checkbox(_("t1.plumbing"), value=True)
+            needs_electrical = st.checkbox(_("t1.electrical"), value=False)
+            needs_tiling = st.checkbox(_("t1.tiling"), value=True)
+        with scope_cols[1]:
+            needs_plastering = st.checkbox(_("t1.plastering"), value=True)
+            needs_flooring = st.checkbox(_("t1.flooring"), value=False)
+            needs_ac = st.checkbox(_("t1.ac"), value=False)
+            suspected_slag = st.checkbox(
+                _("t1.slag"),
+                value=False,
+                help=_("t1.slag_help"),
+            )
+
+        run_estimate = st.button(
+            _("t1.button"), type="primary", use_container_width=True
+        )
+
+    with col2:
+        if run_estimate:
+            try:
+                with st.spinner(_("t1.spinner")):
+                    apt_input = ApartmentInput(
+                        district=district,
+                        total_area_sqm=area_sqm,
+                        num_rooms=num_rooms,
+                        building_era=building_era,
+                        needs_plumbing=needs_plumbing,
+                        needs_electrical=needs_electrical,
+                        needs_flooring=needs_flooring or needs_tiling,
+                        needs_full_demolition=needs_demolition,
+                        suspected_slag=suspected_slag,
+                    )
+                    features = apartment_input_to_features(apt_input)
+
+                    result = predict(
+                        features=features,
+                        price_index=st.session_state.price_index,
+                        target_date=date.today(),
+                        model_dir=Path(cfg.models_dir),
+                    )
+
+                st.subheader(_("t1.result_title"))
+                metric_cols = st.columns(3)
+                with metric_cols[0]:
+                    st.metric(
+                        _("t1.metric_low"),
+                        fmt_huf(result["estimate_low_huf"]),
+                        help=_("t1.metric_low_help"),
+                    )
+                with metric_cols[1]:
+                    st.metric(
+                        _("t1.metric_mid"),
+                        fmt_huf(result["estimate_mid_huf"]),
+                        help=_("t1.metric_mid_help"),
+                    )
+                with metric_cols[2]:
+                    st.metric(
+                        _("t1.metric_high"),
+                        fmt_huf(result["estimate_high_huf"]),
+                        help=_("t1.metric_high_help"),
+                    )
+
+                mid = result["estimate_mid_huf"]
+                st.caption(
+                    _("t1.per_sqm", per_sqm=f"{mid // max(area_sqm, 1):,}".replace(",", " "), date=result["inflation_adjusted_to"])
+                )
+
+                if result.get("warning"):
+                    st.warning(result["warning"])
+
+                try:
+                    similar = find_similar_quotes(
+                        features, Path(cfg.quotes_json_dir), top_k=3
+                    )
+                    if similar:
+                        df = pd.DataFrame(similar)
+                        df = _scrub_df(df)
+                        if "address" in df.columns:
+                            df["address"] = df["address"].apply(_anonymize_address)
+                        st.subheader(_("t1.similar_title"))
+                        st.caption(_("t1.similar_hint"))
+                        st.dataframe(
+                            df,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                except Exception:
+                    logger.warning("Could not load similar cases", exc_info=True)
+
+            except Exception as exc:
+                logger.error("Prediction error", exc_info=True)
+                st.error(_("t1.error"))
+
+# ── Tab 2: Due Diligence ────────────────────────────────────────
+
+elif tab_selection == _("nav.advisory"):
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader(_("t2.subtitle"))
+
+        district_adv = st.selectbox(
+            _("t2.district"),
+            options=list(range(1, 23)),
+            format_func=lambda x: _("t1.district_fmt").format(x),
+            key="adv_district",
+        )
+        area_adv = st.number_input(
+            _("t2.area"), min_value=20, max_value=200, value=55, step=5, key="adv_area"
+        )
+        rooms_adv = st.number_input(
+            _("t2.rooms"), min_value=1, max_value=8, value=2, key="adv_rooms"
+        )
+
+        bt_opts = ["tégla", "panel", "újépítés", "ismeretlen"]
+        bt_fmt = {
+            "tégla": _("t2.building_type_brick"),
+            "panel": _("t2.building_type_panel"),
+            "újépítés": _("t2.building_type_new"),
+            "ismeretlen": _("t2.building_type_unknown"),
+        }
+        building_type = st.selectbox(
+            _("t2.building_type"),
+            options=bt_opts,
+            format_func=bt_fmt.get,
+        )
+
+        era_opts = ["1945_előtt", "1945_1970", "1970_1990", "1990_2010", "2010_után"]
+        era_fmt = {
+            "1945_előtt": _("t2.era_1945_elott"),
+            "1945_1970": _("t2.era_1945_1970"),
+            "1970_1990": _("t2.era_1970_1990"),
+            "1990_2010": _("t2.era_1990_2010"),
+            "2010_után": _("t2.era_2010_utan"),
+        }
+        building_era_adv = st.selectbox(
+            _("t2.era"),
+            options=era_opts,
+            format_func=era_fmt.get,
+        )
+
+        cond_opts = ["nagyon_rossz", "közepes", "lakható"]
+        cond_fmt = {
+            "nagyon_rossz": _("t2.condition_bad"),
+            "közepes": _("t2.condition_mid"),
+            "lakható": _("t2.condition_ok"),
+        }
+        condition = st.select_slider(
+            _("t2.condition"),
+            options=cond_opts,
+            format_func=cond_fmt.get,
+            value="közepes",
+        )
+
+        known_issues_raw = st.text_area(
+            _("t2.known_issues"),
+            placeholder=_("t2.known_issues_ph"),
+            height=100,
+        )
+
+        has_visited = st.checkbox(_("t2.has_visited"), value=False)
+
+        asking_price = st.number_input(
+            _("t2.asking_price"),
+            min_value=0.0,
+            max_value=500.0,
+            value=0.0,
+            step=1.0,
+            format="%.1f",
+        )
+
+        run_advisory = st.button(
+            _("t2.button"),
+            type="primary",
+            use_container_width=True,
+        )
+
+    with col2:
+        if run_advisory:
+            known_issues = [
+                s.strip()
+                for s in known_issues_raw.replace("\n", ",").split(",")
+                if s.strip()
+            ]
+            asking = asking_price if asking_price > 0 else None
+
+            profile = ApartmentProfile(
+                address_district=district_adv,
+                floor_area_sqm=area_adv,
+                num_rooms=rooms_adv,
+                building_type=building_type,
+                building_era_approx=building_era_adv,
+                current_condition=condition,
+                known_issues=known_issues,
+                has_seen_in_person=has_visited,
+                asking_price_million_huf=asking,
+            )
+
+            st.info(_("t2.wait"))
+            try:
+                with st.spinner(_("t2.spinner")):
+                    if st.session_state.rag_pipeline is None:
+                        st.error(_("t2.no_rag"))
+                        st.stop()
+
+                    report = generate_report(
+                        profile=profile,
+                        rag_pipeline=st.session_state.rag_pipeline,
+                        price_predictor_model_dir=Path(cfg.models_dir),
+                        price_index=st.session_state.price_index,
+                        gemini_config=GeminiConfig(
+                            api_key=cfg.google_api_key,
+                            model_name=cfg.gemini_chat_model,
+                        ),
+                    )
+
+                risk_colors = {"alacsony": "🟢", "közepes": "🟡", "magas": "🔴"}
+                st.subheader(
+                    f"{risk_colors.get(report.overall_risk, '⚪')} "
+                    + _("t2.risk_label", risk=report.overall_risk.upper())
+                )
+                st.markdown(f"> {report.summary_hu}")
+
+                ce = report.cost_estimate
+                st.caption(
+                    _(
+                        "t2.cost_label",
+                        low=fmt_huf(ce["estimate_low_huf"]),
+                        high=fmt_huf(ce["estimate_high_huf"]),
+                    )
+                )
+
+                priority_icons = {
+                    "kritikus": "🔴",
+                    "fontos": "🟡",
+                    "érdemes_megnézni": "🟢",
+                }
+
+                def render_items(items, expander_key, icon_map=priority_icons):
+                    for item in sorted(
+                        items,
+                        key=lambda x: PRIORITY_ORDER.index(x.priority)
+                        if x.priority in PRIORITY_ORDER
+                        else 99,
+                    ):
+                        icon = icon_map.get(item.priority, "⚪")
+                        st.markdown(
+                            f"**{icon} [{item.category}]** {item.item}"
+                        )
+                        st.caption(_("t2.why", why=item.why))
+                        if item.rag_source:
+                            src_anon = _anonymize_source(item.rag_source)
+                            st.caption(_("t2.source", src=src_anon))
+                        st.divider()
+
+                with st.expander(
+                    _("t2.expander_questions", n=len(report.questions_for_seller)),
+                    expanded=True,
+                ):
+                    render_items(report.questions_for_seller, "questions")
+
+                with st.expander(
+                    _("t2.expander_inspection", n=len(report.inspection_checklist)),
+                ):
+                    render_items(report.inspection_checklist, "inspection")
+
+                with st.expander(
+                    _("t2.expander_redflags", n=len(report.red_flags)),
+                ):
+                    for item in report.red_flags:
+                        if item.priority == "kritikus":
+                            st.error(f"**{item.category}:** {item.item}")
+                        else:
+                            st.warning(f"**{item.category}:** {item.item}")
+                        st.caption(_("t2.why", why=item.why))
+                        if item.rag_source:
+                            src_anon = _anonymize_source(item.rag_source)
+                            st.caption(_("t2.source", src=src_anon))
+                        st.divider()
+
+                with st.expander(_("t2.expander_sources")):
+                    for src in report.rag_sources_used:
+                        st.markdown(f"- `{_anonymize_source(src)}`")
+
+            except Exception as exc:
+                logger.error("Advisory report error", exc_info=True)
+                st.error(_("t2.error"))
+                with st.expander(_("t2.tech_detail")):
+                    st.code(f"{type(exc).__name__}: {exc}", language="text")
+
+# ── Tab 3: Market Data ──────────────────────────────────────────
+
+elif tab_selection == _("nav.market"):
+    st.subheader(_("t3.title"))
+    st.caption(_("t3.hint"))
+
+    st.markdown(f"**{_('t3.examples')}**")
+    example_cols = st.columns(3)
+    examples = [
+        _("t3.ex_q1"),
+        _("t3.ex_q2"),
+        _("t3.ex_q3"),
+        _("t3.ex_q4"),
+        _("t3.ex_q5"),
+        _("t3.ex_q6"),
+    ]
+    for i, ex in enumerate(examples):
+        with example_cols[i % 3]:
+            if st.button(ex, use_container_width=True, key=f"ex_{i}"):
+                st.session_state.sql_question = ex
+
+    question = st.text_input(
+        _("t3.input"),
+        value=st.session_state.get("sql_question", ""),
+        placeholder=_("t3.input_ph"),
+    )
+
+    if st.button(_("t3.button"), type="primary") and question:
+        try:
+            with st.spinner(_("t3.spinner")):
+                result = _run_async(
+                    _run_sql_query(question, sql_engine, session_maker)
+                )
+
+            with st.expander(_("t3.sql_label")):
+                st.code(result.get("sql", ""), language="sql")
+
+            if result.get("rows"):
+                st.success(_("t3.rows_found", n=result["row_count"]))
+                df = _scrub_df(pd.DataFrame(result["rows"]))
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info(_("t3.no_data"))
+
+        except Exception as exc:
+            logger.error("SQL query error", exc_info=True)
+            st.error(_("t3.error"))

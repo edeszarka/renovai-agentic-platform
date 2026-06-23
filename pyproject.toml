@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "openpyxl",
     "pandas",
+    "streamlit>=1.35.0",
     "chromadb",
     "google-generativeai",
     "langchain",
@@ -28,6 +29,9 @@ dependencies = [
     "mcp",
     "tenacity",
     "diskcache",
+    "google-cloud-aiplatform[agent-engines]>=1.148.1",
+    "google-adk>=2.1.0",
+    "google-cloud-logging>=3.16.0",
 ]
 
 [project.optional-dependencies]

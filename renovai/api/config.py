@@ -12,7 +12,7 @@ class AppConfig(BaseSettings):
     # Gemini (free tier)
     google_api_key: str = ""
     gemini_chat_model: str = "gemini-2.5-flash"
-    gemini_fast_model: str = "gemini-2.5-flash-lite"   # for Text-to-SQL
+    gemini_fast_model: str = "gemini-2.5-flash"   # for Text-to-SQL
     gemini_embed_model: str = "models/gemini-embedding-2"
 
     # Ollama (local)

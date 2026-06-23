@@ -106,14 +106,13 @@ VÁLASZ:
     # Model fallback list - diverse selection to bypass specific model quotas
     models_to_try = [
         config.model_name,
-        "gemini-flash-latest",
-        "gemini-pro-latest",
-        "gemini-2.0-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
         "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-flash-latest",
         "gemini-1.5-flash",
         "gemini-1.5-pro",
-        "gemma-4-31b-it",     # Gemma might have separate quota
-        "gemma-4-26b-a4b-it" 
     ]
     
     # Remove duplicates while preserving order
