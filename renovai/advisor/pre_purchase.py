@@ -38,8 +38,8 @@ class ApartmentProfile(BaseModel):
 class ChecklistItem(BaseModel):
     category: str           # e.g. "Víz és csatorna", "Villanyszerelés"
     item: str               # the specific thing to check / question to ask
-    priority: Literal["kritikus", "fontos", "érdemes_megnézni"]
-    why: str                # one sentence explanation in Hungarian
+    priority: Literal["kritikus", "fontos", "érdemes_megnézni"] = "fontos"
+    why: str = ""           # one sentence explanation in Hungarian
     rag_source: Optional[str] = None # source_file that this came from
 
 class AdvisoryReport(BaseModel):
@@ -186,6 +186,8 @@ A végén add meg az eredményt JSON formátumban is, a következő struktúráb
   "inspection": [...],
   "red_flags": [...]
 }}
+
+Every item in all three lists MUST include these exact keys: 'category' (string), 'item' (string), 'priority' (one of: kritikus, fontos, érdemes_megnézni), 'why' (one sentence explanation in Hungarian), 'rag_source' (source filename or null). Missing any key is not acceptable.
 """
     
     gen_config = types.GenerateContentConfig(
