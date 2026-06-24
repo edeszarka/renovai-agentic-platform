@@ -20,6 +20,7 @@ from renovai.predictor.feature_extractor import (
     apartment_input_to_features,
 )
 from renovai.predictor.price_model import predict, find_similar_quotes
+from renovai.predictor.cost_breakdown import load_cost_breakdown
 from renovai.advisor.pre_purchase import generate_report, ApartmentProfile
 from renovai.rag.vector_store import VectorStoreConfig, RenovAIVectorStore
 from renovai.rag.embedder import EmbedderConfig
@@ -106,6 +107,10 @@ LANG = {
         "t2.similar_title": "Hasonló felújítások az adatbázisból",
         "t2.similar_hint": "Ezeken az árajánlatokon alapul a becslés (inflációval korrigálva).",
         "t2.why_expander": "💡 Miért ennyibe kerül?",
+        "t2.why_samples": "Átlag ({n} db)",
+        "t2.why_median": "Medián",
+        "t2.why_disclaimer": "Az árak inflációval korrigált összegek a 30 árajánlat alapján. Tájékoztató jellegűek.",
+        "t2.why_no_data": "Nincs elérhető adat a költségbontáshoz.",
         "t2.comparison_title": "📊 Megéri megvenni?",
         "t2.buy_column": "Vételár + felújítás",
         "t2.buy_column_help": "Mennyibe kerülne összesen ez a lakás felújítva",
@@ -241,6 +246,10 @@ LANG = {
         "t2.similar_title": "Similar Renovations in Database",
         "t2.similar_hint": "The estimate is based on these quotes (inflation-adjusted).",
         "t2.why_expander": "💡 Why does it cost this much?",
+        "t2.why_samples": "Avg ({n} quotes)",
+        "t2.why_median": "Median",
+        "t2.why_disclaimer": "Inflation-adjusted costs from 30 renovation quotes. For informational purposes only.",
+        "t2.why_no_data": "No cost breakdown data available.",
         "t2.comparison_title": "📊 Is it worth it?",
         "t2.buy_column": "Purchase + renovation",
         "t2.buy_column_help": "Total cost of this apartment renovated",
@@ -813,26 +822,25 @@ elif tab_selection == _("nav.advisory"):
                     st.warning(cost["warning"])
 
                 with st.expander(_("t2.why_expander")):
-                    scope_text = []
-                    if needs_demolition: scope_text.append("bontás")
-                    if needs_plumbing: scope_text.append("víz/fűtés")
-                    if needs_electrical: scope_text.append("villany")
-                    if needs_tiling: scope_text.append("burkolás")
-                    if needs_plastering: scope_text.append("festés")
-                    if needs_flooring: scope_text.append("parketta")
-                    if needs_ac: scope_text.append("klíma")
-                    scope_str = ", ".join(scope_text) if scope_text else "nincs adat"
-                    rag_q = (
-                        f"Miért kerül ennyibe egy {area_sqm}m² felújítás "
-                        f"{building_type} épületben, {district}. kerületben, "
-                        f"{scope_str} munkákkal?"
-                    )
-                    if st.session_state.rag_pipeline:
-                        resp, _ = st.session_state.rag_pipeline.query_with_trace(rag_q)
-                        words = resp.split()[:300]
-                        st.markdown(" ".join(words))
+                    lang = st.session_state.get("lang", "HU")
+                    cat_label_key = "category_hu" if lang == "HU" else "category_en"
+                    cost_data = load_cost_breakdown(Path(cfg.quotes_json_dir))
+                    if cost_data:
+                        cost_rows = []
+                        for r in cost_data:
+                            cost_rows.append({
+                                "Munkafajta" if lang == "HU" else "Work type": r[cat_label_key],
+                                _("t2.why_samples", n=r["count"]): f"{r['avg_huf']:,}".replace(",", " ") + " Ft",
+                                _("t2.why_median"): f"{r['median_huf']:,}".replace(",", " ") + " Ft",
+                            })
+                        st.dataframe(
+                            pd.DataFrame(cost_rows),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        st.caption(_("t2.why_disclaimer"))
                     else:
-                        st.caption("RAG pipeline nem elérhető.")
+                        st.caption(_("t2.why_no_data"))
 
                 try:
                     similar = find_similar_quotes(
