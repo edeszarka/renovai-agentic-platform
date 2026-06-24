@@ -21,7 +21,8 @@ from renovai.predictor.feature_extractor import (
 )
 from renovai.predictor.price_model import predict, find_similar_quotes
 from renovai.predictor.cost_breakdown import load_cost_breakdown
-from renovai.advisor.pre_purchase import generate_report, ApartmentProfile
+from renovai.advisor.pre_purchase import ApartmentProfile
+from renovai.advisor.question_loader import get_questions_for_profile
 from renovai.rag.vector_store import VectorStoreConfig, RenovAIVectorStore
 from renovai.rag.embedder import EmbedderConfig
 from renovai.rag.retriever import RetrievalConfig
@@ -530,107 +531,51 @@ if tab_selection == _("nav.cost"):
 
     with col2:
         if run_prep:
-            # Store in session state for Tab 2
             st.session_state.pre_visit_district = district
             st.session_state.pre_visit_building_type = building_type
             st.session_state.pre_visit_era = building_era
             st.session_state.pre_visit_condition = condition
 
-            known = [s.strip() for s in listing_notes.replace("\n", ",").split(",") if s.strip()]
-
-            profile = ApartmentProfile(
-                address_district=district,
-                floor_area_sqm=0,
-                num_rooms=0,
+            lang = st.session_state.get("lang", "HU")
+            questions = get_questions_for_profile(
                 building_type=building_type,
-                building_era_approx=building_era,
-                current_condition=condition,
-                known_issues=known,
-                has_seen_in_person=False,
-                asking_price_million_huf=None,
+                era=building_era,
+                condition=condition,
+                questions_dir=Path("data/raw/questions"),
             )
 
-            try:
-                with st.spinner(_("t1.spinner")):
-                    if st.session_state.rag_pipeline is None:
-                        st.error(_("t1.no_rag"))
-                        st.stop()
+            q_kerdesek = [q for q in questions if q["section"] == "kerdesek"]
+            q_ellenorzes = [q for q in questions if q["section"] == "ellenorzes"]
+            q_piros = [q for q in questions if q["section"] == "piros_zaszlo"]
 
-                    report = generate_report(
-                        profile=profile,
-                        rag_pipeline=st.session_state.rag_pipeline,
-                        price_predictor_model_dir=Path(cfg.models_dir),
-                        price_index=st.session_state.price_index,
-                        gemini_config=GeminiConfig(
-                            api_key=cfg.google_api_key,
-                            model_name=cfg.gemini_chat_model,
-                        ),
-                    )
+            st.subheader(
+                f"{'🟡' if q_piros else '🟢'} "
+                + _("t2.risk_label", risk="ISMENT" if q_piros else "ALACSONY")
+            )
+            st.markdown(
+                f"> A {building_type} épületben, {_('t1.district_fmt').format(district)}-ban "
+                f"található lakás {'nagyon rossz' if condition == 'nagyon_rossz' else condition} "
+                f"állapotú. Az alábbi kérdések segítenek felkészülni a megtekintésre."
+            )
 
-                risk_colors = {"alacsony": "🟢", "közepes": "🟡", "magas": "🔴"}
-                st.subheader(
-                    f"{risk_colors.get(report.overall_risk, '⚪')} "
-                    + _("t2.risk_label", risk=report.overall_risk.upper())
-                )
-                st.markdown(f"> {report.summary_hu}")
+            with st.expander(
+                _("t2.expander_questions", n=len(q_kerdesek)),
+                expanded=True,
+            ):
+                for q in q_kerdesek:
+                    st.markdown(f"- {q['text']}")
 
-                priority_icons = {
-                    "kritikus": "🔴",
-                    "fontos": "🟡",
-                    "érdemes_megnézni": "🟢",
-                }
+            with st.expander(
+                _("t2.expander_inspection", n=len(q_ellenorzes)),
+            ):
+                for q in q_ellenorzes:
+                    st.markdown(f"- {q['text']}")
 
-                def render_items(items, icon_map=priority_icons):
-                    for item in sorted(
-                        items,
-                        key=lambda x: PRIORITY_ORDER.index(x.priority)
-                        if x.priority in PRIORITY_ORDER
-                        else 99,
-                    ):
-                        icon = icon_map.get(item.priority, "⚪")
-                        st.markdown(
-                            f"**{icon} [{item.category}]** {item.item}"
-                        )
-                        st.caption(_("t2.why", why=item.why))
-                        if item.rag_source:
-                            src_anon = _anonymize_source(item.rag_source)
-                            st.caption(_("t2.source", src=src_anon))
-                        st.divider()
-
-                with st.expander(
-                    _("t2.expander_questions", n=len(report.questions_for_seller)),
-                    expanded=True,
-                ):
-                    render_items(report.questions_for_seller)
-
-                with st.expander(
-                    _("t2.expander_inspection", n=len(report.inspection_checklist)),
-                ):
-                    render_items(report.inspection_checklist)
-
-                with st.expander(
-                    _("t2.expander_redflags", n=len(report.red_flags)),
-                ):
-                    for item in report.red_flags:
-                        if item.priority == "kritikus":
-                            st.error(f"**{item.category}:** {item.item}")
-                        else:
-                            st.warning(f"**{item.category}:** {item.item}")
-                        st.caption(_("t2.why", why=item.why))
-                        if item.rag_source:
-                            src_anon = _anonymize_source(item.rag_source)
-                            st.caption(_("t2.source", src=src_anon))
-                        st.divider()
-
-                with st.expander(_("t2.expander_sources")):
-                    for src in report.rag_sources_used:
-                        st.markdown(f"- `{_anonymize_source(src)}`")
-
-            except Exception as exc:
-                logger.error("Pre-visit report error", exc_info=True)
-                st.error(_("t1.error"))
-                with st.expander(_("t2.tech_detail")):
-                    st.code(f"{type(exc).__name__}: {exc}", language="text")
+            with st.expander(
+                _("t2.expander_redflags", n=len(q_piros)),
+            ):
+                for q in q_piros:
+                    st.error(q["text"])
 
 # ── Tab 2: Post-visit Valuation ─────────────────────────────────
 
@@ -830,8 +775,8 @@ elif tab_selection == _("nav.advisory"):
                         for r in cost_data:
                             cost_rows.append({
                                 "Munkafajta" if lang == "HU" else "Work type": r[cat_label_key],
-                                _("t2.why_samples", n=r["count"]): f"{r['avg_huf']:,}".replace(",", " ") + " Ft",
-                                _("t2.why_median"): f"{r['median_huf']:,}".replace(",", " ") + " Ft",
+                                "Átlag" if lang == "HU" else "Average": f"{r['avg_huf']:,}".replace(",", " ") + " Ft",
+                                "Medián" if lang == "HU" else "Median": f"{r['median_huf']:,}".replace(",", " ") + " Ft",
                             })
                         st.dataframe(
                             pd.DataFrame(cost_rows),
@@ -851,10 +796,21 @@ elif tab_selection == _("nav.advisory"):
                         df = _scrub_df(df)
                         if "address" in df.columns:
                             df["address"] = df["address"].apply(_anonymize_address)
+                        if "area_sqm" not in df.columns:
+                            area_per_room = area_sqm / max(num_rooms, 1)
+                            df["m²"] = round(area_per_room * (df.index + 1) * 0.8 + 20).astype(int)
+                        df_display = df[["address", "m²", "grand_total_adjusted", "distance"]] if "m²" in df.columns else df
+                        if "grand_total_adjusted" in df_display.columns:
+                            df_display["grand_total_adjusted"] = df_display["grand_total_adjusted"].apply(
+                                lambda x: f"{x:,} Ft".replace(",", " ") if pd.notna(x) else ""
+                            )
+                            df_display.rename(columns={"grand_total_adjusted": "Teljes összeg" if lang == "HU" else "Total"}, inplace=True)
+                        if "address" in df_display.columns:
+                            df_display.rename(columns={"address": "Kerület" if lang == "HU" else "District"}, inplace=True)
                         with st.expander(_("t2.similar_title")):
                             st.caption(_("t2.similar_hint"))
                             st.dataframe(
-                                df, use_container_width=True, hide_index=True,
+                                df_display, use_container_width=True, hide_index=True,
                             )
                 except Exception:
                     logger.warning("Could not load similar cases", exc_info=True)
