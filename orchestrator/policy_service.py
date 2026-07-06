@@ -79,6 +79,73 @@ class PolicyService:
         self._pii_patterns: list[tuple[str, re.Pattern]] = self._compile_pii_patterns()
         # Lazy-loaded Gemini client for semantic checks
         self._semantic_client = None
+        # Agent Identity Manager for ABAC
+        self._identity_manager: Any = None
+
+    def set_identity_manager(self, mgr: Any) -> None:
+        """Inject the AgentIdentityManager for ABAC token verification."""
+        self._identity_manager = mgr
+
+    # -----------------------------------------------------------------------
+    # ABAC check (Agent Identity-based)
+    # -----------------------------------------------------------------------
+
+    def check_abac(
+        self,
+        identity: Any,
+        action: str,
+        resource: str | None = None,
+        trace_id: str | None = None,
+    ) -> PolicyCheckResult:
+        """Attribute-Based Access Control check using the agent's SPIFFE identity.
+
+        Verifies:
+        1. The token is not expired
+        2. The requested action is in the identity's allowed_actions
+        3. The requested resource is in the identity's allowed_resources (if specified)
+        """
+        tid = trace_id or str(uuid.uuid4())
+
+        if identity is None:
+            return PolicyCheckResult(
+                passed=False,
+                reason="No agent identity provided. ABAC check requires a valid AgentIdentity token.",
+                trace_id=tid,
+                check_type="structural",
+            )
+
+        if identity.is_expired():
+            return PolicyCheckResult(
+                passed=False,
+                reason=f"Agent identity expired at {identity.expires_at}. "
+                       f"Request a new JIT-downscoped token.",
+                trace_id=tid,
+                check_type="structural",
+            )
+
+        if not identity.is_authorised(action, resource):
+            return PolicyCheckResult(
+                passed=False,
+                reason=(
+                    f"ABAC denied: identity '{identity.agent_id}' is not authorised "
+                    f"for action '{action}'" +
+                    (f" on resource '{resource}'" if resource else "") +
+                    f". Allowed actions: {identity.claims.get('allowed_actions', [])}"
+                ),
+                trace_id=tid,
+                check_type="structural",
+            )
+
+        logger.info(
+            "[%s] ABAC PASS: agent=%s action=%s resource=%s",
+            tid, identity.agent_id, action, resource,
+        )
+        return PolicyCheckResult(
+            passed=True,
+            reason=f"ABAC authorised: agent '{identity.agent_id}' may perform '{action}'.",
+            trace_id=tid,
+            check_type="structural",
+        )
 
     # -----------------------------------------------------------------------
     # Structural checks (YAML-driven)

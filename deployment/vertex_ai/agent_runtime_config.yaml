@@ -1,0 +1,84 @@
+# RenovAI 2.0 — Vertex AI Agent Runtime Configuration
+# Deploy with: agents-cli deploy --deployment-target agent_runtime
+#
+# Requires: agents-cli (uv tool install google-agents-cli)
+# APIs: cloudbuild.googleapis.com, secretmanager.googleapis.com, run.googleapis.com
+#
+# Architecture:
+#   - Source-based deployment (no Dockerfile needed for Agent Runtime)
+#   - Terminal Sandboxing: dynamically generated code runs in gVisor-isolated
+#     subprocess via the ingestion sandbox module
+#   - Service account: renovai-app-sa (JIT downscoped per sub-agent identity)
+
+project: renovai-prod
+region: europe-west1
+
+deployment:
+  target: agent_runtime
+  service_name: renovai-2.0
+  service_account: renovai-app-sa@renovai-prod.iam.gserviceaccount.com
+
+  # Sizing (see sizing guidance in deploy skill)
+  cpu: 2
+  memory: 4Gi
+  num_workers: 2
+  concurrency: 8
+  min_instances: 1
+  max_instances: 10
+
+  secrets:
+    - GOOGLE_API_KEY=google-api-key
+    - RENOVAI_IDENTITY_SECRET=renovai-identity-secret
+
+  env_vars:
+    DATABASE_URL: "sqlite+aiosqlite:///data/renovai.db"
+    GEMINI_CHAT_MODEL: "gemini-2.5-flash"
+    LOG_LEVEL: "INFO"
+    PYTHONUNBUFFERED: "1"
+
+  # Binary Authorization: only deploy attested images
+  binary_authorization:
+    enabled: true
+    policy: projects/renovai-prod/policy/default
+
+  # Observability
+  observability:
+    cloud_tracing: true
+    prompt_response_logging: true
+    bigquery_analytics:
+      enabled: true
+      dataset: renovai_analytics
+      tables:
+        - audit_trail
+        - feedback
+        - traces
+
+  # Terminal Sandboxing (gVisor)
+  sandbox:
+    enabled: true
+    runtime: gvisor
+    # Applied to: ingestion sandbox, any dynamic code execution
+    allowed_syscalls:
+      - read
+      - write
+      - exit
+      - exit_group
+      - mmap
+      - munmap
+      - brk
+    blocked_syscalls:
+      - clone
+      - fork
+      - vfork
+      - execve
+      - execveat
+      - ptrace
+      - process_vm_readv
+
+  # Agent identities (SPIFFE)
+  agent_identity:
+    enabled: true
+    issuer: renovai-identity-manager
+    secret_ref: renovai-identity-secret
+    token_ttl_seconds: 600
+    abac_enabled: true

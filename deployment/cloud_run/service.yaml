@@ -1,0 +1,68 @@
+# RenovAI 2.0 — Cloud Run Service Definition
+# Deploy with: gcloud run services replace service.yaml
+# Or use agents-cli: agents-cli deploy --deployment-target cloud_run
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: renovai
+  annotations:
+    run.googleapis.com/ingress: internal-and-cloud-load-balancing
+    run.googleapis.com/ingress-status: internal-and-cloud-load-balancing
+    run.googleapis.com/vpc-access-egress: all-traffic
+    run.googleapis.com/execution-environment: gen2
+    # Binary Authorization: only allow attested images
+    binaryauthorization.googleapis.com/policy: projects/renovai-prod/policy/default
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "10"
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/startup-cpu-boost: "true"
+        # gVisor sandbox: use gen2 execution environment
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 8
+      timeoutSeconds: 120
+      serviceAccountName: renovai-app-sa@renovai-prod.iam.gserviceaccount.com
+      containers:
+        - image: europe-west1-docker.pkg.dev/renovai-prod/renovai/renovai:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: RENOVAI_IDENTITY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: renovai-identity-secret
+                  key: latest
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: google-api-key
+                  key: latest
+            - name: DATABASE_URL
+              value: "sqlite+aiosqlite:///data/renovai.db"
+            - name: GEMINI_CHAT_MODEL
+              value: "gemini-2.5-flash"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          startupProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
