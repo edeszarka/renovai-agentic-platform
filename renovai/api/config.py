@@ -9,11 +9,23 @@ class LLMBackend(str, Enum):
 class AppConfig(BaseSettings):
     llm_backend: LLMBackend = LLMBackend.GEMINI
 
-    # Gemini (free tier)
+    # --- Gemini (free tier, for RAG + advisor) ---
     google_api_key: str = ""
     gemini_chat_model: str = "gemini-2.5-flash"
-    gemini_fast_model: str = "gemini-2.5-flash"   # for Text-to-SQL
-    gemini_embed_model: str = "models/gemini-embedding-2"
+    gemini_embed_model: str = "models/gemini-embedding-001"
+
+    # --- Groq (free forever, for Text-to-SQL only) ---
+    groq_api_key: str = ""
+    groq_sql_model: str = "llama-3.3-70b-versatile"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+
+    # --- DeepSeek (paid fallback, disabled by default) ---
+    deepseek_api_key: str = ""
+    deepseek_sql_model: str = "deepseek-v4-flash"
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+
+    # --- Routing ---
+    sql_provider: str = "groq"  # "groq" | "gemini" | "deepseek"
 
     # Ollama (local)
     ollama_base_url: str = "http://localhost:11434"

@@ -19,7 +19,7 @@ from renovai.predictor.feature_extractor import (
     ApartmentInput,
     apartment_input_to_features,
 )
-from renovai.predictor.price_model import predict, find_similar_quotes
+from renovai.predictor.price_model import scope_matched_estimate, find_similar_quotes
 from renovai.predictor.cost_breakdown import load_cost_breakdown
 from renovai.advisor.pre_purchase import ApartmentProfile
 from renovai.advisor.question_loader import get_questions_for_profile
@@ -711,12 +711,17 @@ elif tab_selection == _("nav.advisory"):
                         suspected_slag=suspected_slag,
                     )
                     features = apartment_input_to_features(apt_input)
-                    cost = predict(
-                        features=features,
-                        price_index=st.session_state.price_index,
-                        target_date=date.today(),
-                        model_dir=Path(cfg.models_dir),
+                    cost = _run_async(
+                        scope_matched_estimate(
+                            apt_input=apt_input,
+                            session_maker=session_maker,
+                            price_index=st.session_state.price_index,
+                            target_date=date.today(),
+                        )
                     )
+
+                    if cost is None:
+                        raise RuntimeError("A DB nem tartalmaz árajánlat-adatot. Futtasd az adatbetöltést először.")
 
                     nb = get_newbuild_median_price(
                         district=district,

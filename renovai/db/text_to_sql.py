@@ -1,11 +1,12 @@
 import re
 import logging
-from google import genai
-from google.genai import types
-from typing import List, Dict, Any, Optional
+from openai import OpenAI
+import google.generativeai as genai
+from typing import List, Dict, Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+from renovai.api.config import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -41,82 +42,122 @@ All text fields are in Hungarian.
 """
 
 TEXT_TO_SQL_SYSTEM_PROMPT = """
-You are an SQL expert managing a database of Hungarian renovation quotes.
-The user may ask questions in Hungarian or English — detect the language
-and respond with an SQLite-compatible SELECT statement.
+You are a SQL expert managing a database of Hungarian renovation
+quotes (felújítási árajánlatok). The user may ask questions in
+Hungarian or English. You must return ONLY a valid SQLite SELECT
+statement, nothing else — no explanation, no preamble, no markdown
+fences.
 
 Rules:
-- Output ONLY the SQL SELECT statement, nothing else.
-- No explanations, no markdown fences around the SQL.
-- Always use descriptive Hungarian column aliases with AS
-  (e.g. AVG(grand_total_huf) AS atlag_osszeg_huf).
-- For sum amounts that may be requested in millions, divide by 1000000.0
-  and round to 1 decimal.
-- Prefer JOINs over subqueries.
-- Always add LIMIT 100 unless the question explicitly asks for all rows.
-- The database schema and all text data are in Hungarian — use Hungarian
-  keywords when filtering text columns (e.g. WHERE name_hu LIKE '%bontás%').
+- Return SELECT only. Never INSERT, UPDATE, DELETE, DROP.
+- Always alias columns with descriptive names.
+- For monetary amounts, divide by 1000000 and round to 1 decimal
+  and alias as e.g. atlag_millio_huf or avg_million_huf
+  depending on the question language.
+- Always add LIMIT 100 unless the question explicitly asks for all.
+- Use JOINs instead of subqueries where possible.
 
 Schema:
 {schema}
+
+{language_instruction}
 """
 
-class TextToSQLEngine:
-    def __init__(self, gemini_api_key: str, model: str = "gemini-2.5-flash"):
-        self.client = genai.Client(api_key=gemini_api_key)
-        self.model_name = model
 
-    @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=2, min=2, max=30),
-        retry=retry_if_exception_type(Exception),
-        before_sleep=lambda retry_state: logger.warning(
-            f"Gemini API error in Text-to-SQL. Retrying in {retry_state.next_action.sleep}s... "
-            f"Attempt {retry_state.attempt_number}/5"
+class TextToSQLEngine:
+    def __init__(self, cfg: AppConfig):
+        self.cfg = cfg
+        self.provider = cfg.sql_provider
+
+        if self.provider in ("groq", "deepseek"):
+            api_key = (
+                cfg.groq_api_key
+                if self.provider == "groq"
+                else cfg.deepseek_api_key
+            )
+            base_url = (
+                cfg.groq_base_url
+                if self.provider == "groq"
+                else cfg.deepseek_base_url
+            )
+            self.model = (
+                cfg.groq_sql_model
+                if self.provider == "groq"
+                else cfg.deepseek_sql_model
+            )
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url=base_url,
+            )
+
+        elif self.provider == "gemini":
+            genai.configure(api_key=cfg.google_api_key)
+            self.gemini = genai.GenerativeModel(cfg.gemini_chat_model)
+            self.model = cfg.gemini_chat_model
+
+    def _detect_language(self, text: str) -> str:
+        HU_MARKERS = [
+            "á", "é", "í", "ó", "ö", "ő", "ú", "ü", "ű",
+            "mennyi", "melyik", "hány", "kerület", "felújítás",
+            "átlag", "összesen", "legdrágább", "legolcsóbb",
+            "milyen", "mikor", "hogyan",
+        ]
+        text_lower = text.lower()
+        hu_score = sum(1 for marker in HU_MARKERS if marker in text_lower)
+        return "hu" if hu_score >= 1 else "en"
+
+    async def generate_sql(self, question: str) -> str:
+        lang = self._detect_language(question)
+        system = TEXT_TO_SQL_SYSTEM_PROMPT.format(
+            schema=SCHEMA_DESCRIPTION,
+            language_instruction=(
+                "Respond in Hungarian (magyarul válaszolj)."
+                if lang == "hu"
+                else "Respond in English."
+            ),
         )
-    )
-    async def generate_sql(self, question_hu: str) -> str:
-        """Translates a Hungarian question into an SQL SELECT statement."""
-        config = types.GenerateContentConfig(
-            system_instruction=TEXT_TO_SQL_SYSTEM_PROMPT.format(schema=SCHEMA_DESCRIPTION)
-        )
-        response = await self.client.aio.models.generate_content(
-            model=self.model_name,
-            contents=question_hu,
-            config=config
-        )
-        sql = response.text.strip()
-        
-        # Strip markdown fences
-        sql = re.sub(r'```sql\s*', '', sql)
-        sql = re.sub(r'```', '', sql)
+
+        if self.provider in ("groq", "deepseek"):
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": question},
+                ],
+                max_tokens=400,
+                temperature=0.0,
+            )
+            sql = response.choices[0].message.content.strip()
+
+        elif self.provider == "gemini":
+            prompt = f"{system}\n\nKérdés / Question: {question}"
+            response = self.gemini.generate_content(prompt)
+            sql = response.text.strip()
+
+        sql = re.sub(r"^```(?:sql)?\s*", "", sql, flags=re.IGNORECASE)
+        sql = re.sub(r"\s*```$", "", sql)
         return sql.strip()
 
     async def execute_query(self, sql: str, session: AsyncSession) -> List[Dict[str, Any]]:
-        """Executes the generated SQL safely."""
-        # Basic safety check
         if not sql.strip().upper().startswith("SELECT"):
             raise ValueError("Only SELECT statements are allowed for safety.")
-            
         res = await session.execute(text(sql))
-        # Convert rows to dicts
         keys = res.keys()
         return [dict(zip(keys, row)) for row in res.fetchall()]
 
-    async def query(self, question_hu: str, session: AsyncSession) -> Dict[str, Any]:
-        """Full Text-to-SQL pipeline."""
-        sql = await self.generate_sql(question_hu)
+    async def query(self, question: str, session: AsyncSession) -> Dict[str, Any]:
+        sql = await self.generate_sql(question)
         try:
             rows = await self.execute_query(sql, session)
             return {
-                "question": question_hu,
+                "question": question,
                 "sql": sql,
                 "rows": rows,
-                "row_count": len(rows)
+                "row_count": len(rows),
             }
         except Exception as e:
             return {
-                "question": question_hu,
+                "question": question,
                 "sql": sql,
-                "error": str(e)
+                "error": str(e),
             }

@@ -21,7 +21,7 @@ from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.cloud import logging as google_cloud_logging
 from vertexai.agent_engines.templates.adk import AdkApp
 
-from app.agent import app as adk_app  # type: ignore[import-untyped]
+from app.agent import app as adk_app, ensure_mcp_tools  # type: ignore[import-untyped]
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
 
@@ -46,6 +46,8 @@ class AgentEngineApp(AdkApp):
             self.logger = logging.getLogger(__name__)
         if gemini_location:
             os.environ["GOOGLE_CLOUD_LOCATION"] = gemini_location
+        import asyncio
+        asyncio.run(ensure_mcp_tools())
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""
@@ -61,11 +63,38 @@ class AgentEngineApp(AdkApp):
     def clone(self) -> "AgentEngineApp":
         """Returns a clone of the Agent Runtime application."""
         return self
-agent_runtime = AgentEngineApp(
-    app=adk_app,
-    artifact_service_builder=lambda: (
-        GcsArtifactService(bucket_name=logs_bucket_name)
-        if logs_bucket_name
-        else InMemoryArtifactService()
-    ),
-)
+
+
+def _build_agent_runtime() -> AgentEngineApp:
+    vertexai.init()
+    return AgentEngineApp(
+        app=adk_app,
+        artifact_service_builder=lambda: (
+            GcsArtifactService(bucket_name=logs_bucket_name)
+            if logs_bucket_name
+            else InMemoryArtifactService()
+        ),
+    )
+
+
+_agent_runtime_instance: AgentEngineApp | None = None
+
+
+def _get_agent_runtime() -> AgentEngineApp:
+    global _agent_runtime_instance
+    if _agent_runtime_instance is None:
+        _agent_runtime_instance = _build_agent_runtime()
+    return _agent_runtime_instance
+
+
+class _LazyAgentRuntime:
+    """Proxy that lazily constructs AgentEngineApp on first attribute access."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(_get_agent_runtime(), name)
+
+    def __init_subclass__(self, **kwargs):
+        pass
+
+
+agent_runtime: Any = _LazyAgentRuntime()
