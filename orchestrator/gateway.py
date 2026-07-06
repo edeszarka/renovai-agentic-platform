@@ -31,6 +31,8 @@ class Intent(str):
     MARKET_QUERY = "market_query"
     DUE_DILIGENCE = "due_diligence"
     INGESTION = "ingestion"
+    EXPERT_INTERVIEW = "expert_interview"
+    CONSTRUCTION_PLANNING = "construction_planning"
     COMBINED = "combined"
     UNKNOWN = "unknown"
 
@@ -93,6 +95,16 @@ KEYWORD_INTENT_MAP: list[tuple[str, str, list[str]]] = [
     (Intent.INGESTION, "ingestion",
      ["feltöltök", "árajánlat", "xlsx", "excel", "beszúrok",
       "import", "parse"]),
+    (Intent.EXPERT_INTERVIEW, "expert_interview",
+     ["mire figyeljek", "épületfizikai", "vörös zászló", "red flag",
+      "kockázat", "átvilágítás", "salak", "kohósalak",
+      "teherhordó fal", "építési korszak", "alapozás",
+      "mit nézzek meg vásárlás előtt", "milyen állapotban van"]),
+    (Intent.CONSTRUCTION_PLANNING, "construction_planning",
+     ["sorrend", "ütemezés", "előbb csinálni", "lépés",
+      "milyen sorrendben", "építési sorrend", "technológiai sorrend",
+      "bontás után", "kőműves", "burkolás előtt",
+      "teljes felújítás terv", "lépésről lépésre"]),
 ]
 
 
@@ -142,7 +154,9 @@ Classify the user's Hungarian question into exactly one of these intents:
 - market_query: User asks about market statistics, averages, trends, or comparisons across the quote corpus.
 - due_diligence: User asks about pre-purchase inspection, red flags, questions for the seller, building-specific risks.
 - ingestion: User uploads or references an XLSX/Excel file containing a contractor quote for parsing.
-- combined: The question clearly spans multiple intents (e.g., both cost AND due-diligence).
+- expert_interview: User asks about building-physics risks, structural condition, historical-era-specific problems (slag, aluminium wiring), or what to inspect before buying.
+- construction_planning: User asks about the step-by-step renovation sequence, construction order, technical feasibility, or what phase comes next.
+- combined: The question clearly spans multiple intents (e.g., both cost AND due-diligence, or interview AND planning).
 - unknown: None of the above match with confidence.
 
 Extract any parameters you can identify from the question:
@@ -226,8 +240,9 @@ class Gateway:
                     clarification_question=(
                         "Nem teljesen értem a kérdést. Kérlek pontosítsd: "
                         "(1) felújítási költségbecslés, (2) elővásárlási "
-                        "tanácsadás, (3) piaci statisztikák, vagy "
-                        "(4) árajánlat feltöltése?"
+                         "tanácsadás, (3) piaci statisztikák, "
+                         "(4) árajánlat feltöltése, (5) épületfizikai "
+                         "szakvélemény, vagy (6) felújítási ütemterv?"
                     ),
                     trace_id=trace_id,
                 )
@@ -273,7 +288,8 @@ class Gateway:
                 decision.clarification_question = (
                     "Nem teljesen biztos a kérdés típusában. Kérlek pontosítsd: "
                     "költségbecslést, elővásárlási tanácsadást, piaci adatokat, "
-                    "vagy árajánlat feltöltést szeretnél?"
+                         "árajánlat feltöltést, épületfizikai szakvéleményt, "
+                         "vagy felújítási ütemtervet szeretnél?"
                 )
 
             # Merge keyword-extracted params as fallback
@@ -335,8 +351,29 @@ class Gateway:
         elif "újépítés" in question_hu.lower():
             params["building_type"] = "újépítés"
 
+        # Building era detection
+        era_match = re.search(r'(19\d\d|20\d\d)', question_hu)
+        if era_match:
+            params["building_era"] = era_match.group(1)
+
+        # Condition keywords
+        if any(kw in question_hu.lower() for kw in ["fűrészporos tapéta", "tapéta", "rossz állapot"]):
+            params.setdefault("wall_condition", {})["wallpaper"] = True
+        if any(kw in question_hu.lower() for kw in ["épített zuhany", "beépített zuhany"]):
+            params.setdefault("scope_flags", {})["built_in_shower"] = True
+        if any(kw in question_hu.lower() for kw in ["salak", "kohósalak"]):
+            params.setdefault("scope_flags", {})["slag"] = True
+
+        # Floor construction
+        if any(kw in question_hu.lower() for kw in ["acél gerendás", "boltíves", "födém"]):
+            params["floor_construction"] = "acél gerendás"
+
+        # Sequencing keywords
+        if any(kw in question_hu.lower() for kw in ["sorrend", "ütemezés", "lépés", "hány lépés"]):
+            params["want_sequence"] = True
+
         # Scope flags
-        scope_flags = {}
+        scope_flags = params.get("scope_flags", {})
         if any(kw in question_hu.lower() for kw in ["villany", "elektromos"]):
             scope_flags["electrical"] = True
         if any(kw in question_hu.lower() for kw in ["víz", "vízvezeték", "plumbing"]):

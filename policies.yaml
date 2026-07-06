@@ -30,6 +30,16 @@ roles:
     can_execute: [predict_cost, find_similar, scope_match, compute_breakdown]
     cannot_access: [sandbox, raw_database, user_pii, sql_schema]
 
+  expert_interviewer:
+    can_access: [rag_pipeline, quote_corpus, gemini_llm, red_flag_db]
+    can_execute: [generate_advisory, assess_risk, recommend_experts, retrieve_context]
+    cannot_access: [sandbox, raw_database, sql_schema, financial_data, user_pii]
+
+  construction_planner:
+    can_access: [price_model, inflation_data, quote_corpus, adjusted_json]
+    can_execute: [produce_estimate, compute_breakdown, generate_sequence, scope_match]
+    cannot_access: [sandbox, raw_database, user_pii, sql_schema, gemini_llm]
+
 structural_checks:
   - rule: "Only ingestion may write to the database"
     action: write_db
@@ -70,6 +80,18 @@ structural_checks:
     action: produce_advisory
     required_fields: [overall_risk, summary_hu, questions_for_seller, inspection_checklist, red_flags]
     deny_message: "Advisory report is missing required sections."
+
+  - rule: "Expert interviewer may assess building-physics risks"
+    action: assess_risk
+    allowed_roles: [expert_interviewer]
+    required_fields: [building_era, building_type]
+    deny_message: "Risk assessment requires building era and type."
+
+  - rule: "Construction planner must validate phase order"
+    action: generate_sequence
+    allowed_roles: [construction_planner]
+    required_fields: [phases]
+    deny_message: "Construction plan must include validated phase sequence."
 
 semantic_checks:
   description: >

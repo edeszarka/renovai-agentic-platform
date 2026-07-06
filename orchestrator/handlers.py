@@ -416,3 +416,388 @@ async def handle_due_diligence(
             "error": f"Due diligence failed: {exc}",
             "trace_id": trace_id,
         }
+
+
+# ---------------------------------------------------------------------------
+# Expert Interviewer handler (Tab 1: building-physics due diligence)
+# ---------------------------------------------------------------------------
+
+async def handle_expert_interview(
+    params: dict[str, Any],
+    policy_service: Any,
+    skill_registry: Any,
+    trace_id: str,
+) -> dict[str, Any]:
+    """
+    Expert Interviewer handler — building-physics inspection and red-flag
+    identification for the pre-purchase due diligence Tab 1 workflow.
+
+    Input contract:
+      { "district": int, "area_sqm": float, "num_rooms": int,
+        "building_type": str, "building_era": str,
+        "floor_construction": str|None, "wall_condition": {...},
+        "has_seen_in_person": bool }
+
+    Output contract:
+      { "red_flags": [...], "overall_risk": str, "summary_hu": str,
+        "inspection_checklist": [...], "questions_for_seller": [...],
+        "recommended_experts": [...], "confidence": {...} }
+    """
+    sr = policy_service.check_structural("expert_interviewer", "assess_risk", trace_id)
+    if not sr.passed:
+        return {"status": "error", "error": sr.reason, "trace_id": trace_id}
+
+    sem = await policy_service.check_semantic(params, trace_id)
+    if not sem.passed:
+        return {"status": "error", "error": sem.reason, "trace_id": trace_id}
+
+    # Progressive disclosure: load expert-interviewer skill
+    instructions = skill_registry.load_instructions("expert-interviewer")
+
+    # Determine building era for red-flag priority logic
+    building_era = params.get("building_era", "unknown")
+    building_type = params.get("building_type", "unknown")
+    floor_construction = params.get("floor_construction", "")
+    wall_condition = params.get("wall_condition", {})
+    has_slag = params.get("scope_flags", {}).get("slag", False) or "salak" in str(params)
+
+    red_flags: list[dict] = []
+    questions: list[str] = []
+    checklist: list[str] = []
+    recommended_experts: list[str] = []
+    risk_factors: list[str] = []
+
+    # Red-flag priority 1: Pre-1960 slag (CRITICAL)
+    if has_slag or (building_era and building_era.isdigit() and int(building_era) < 1960):
+        red_flags.append({
+            "risk": "CRITICAL",
+            "title": "Kohósalak a födémben",
+            "detail": (
+                "Az acél gerendás födém kohósalak kitöltése idővel nedvességet "
+                "szív, ami a gerendák korróziójához és a födém süllyedéséhez vezet."
+            ),
+            "estimated_cost": "3 000 - 5 000 Ft/nm eltávolítás",
+            "action": "Statikus szakvélemény és salakmentesítés szükséges.",
+        })
+        recommended_experts.append("Statikus (statical engineer)")
+        questions.append("Van-e ismert salak a födémben? Történt-e már salakmentesítés?")
+        checklist.append("Ellenőrizze a pince vagy alulról látható födémszerkezetet")
+        risk_factors.append("kohósalak")
+
+    # Red-flag priority 2: 1970s panel aluminium wiring (HIGH)
+    if building_type == "panel" and building_era and building_era.isdigit():
+        era_year = int(building_era)
+        if 1965 <= era_year <= 1985:
+            red_flags.append({
+                "risk": "HIGH",
+                "title": "Alumínium vezetékek a villanyhálózatban",
+                "detail": (
+                    "A 70-es évek panel épületeiben gyakori az alumínium "
+                    "vezeték, amely idővel törékennyé válik és tűzveszélyes."
+                ),
+                "estimated_cost": "3 000 - 5 000 Ft/nm csere",
+                "action": "Villanyszerelői átvizsgálás és teljes vezetékcsere javasolt.",
+            })
+            recommended_experts.append("Villanyszerelő (electrician)")
+            questions.append("Mikor volt utoljára a villanyhálózat felújítva?")
+            checklist.append("Kérje el a villanyhálózati dokumentációt")
+            risk_factors.append("alumínium vezeték")
+
+    # Red-flag priority 3: Pre-1920 brick foundation (HIGH)
+    if building_era and building_era.isdigit() and int(building_era) < 1920:
+        red_flags.append({
+            "risk": "HIGH",
+            "title": "Alapozási kockázat (régi tégla épület)",
+            "detail": (
+                "Az 1920 előtt épült tégla épületek alapozása gyakran "
+                "mészkő vagy tégla alap, ami idővel süllyedhet."
+            ),
+            "estimated_cost": "Változó — statikus szakvélemény szükséges",
+            "action": (
+                "Statikus szakvélemény a födém és alapozás állapotáról. "
+                "Tégla boltíves acél gerendás födém esetén erősítés lehet szükséges."
+            ),
+        })
+        recommended_experts.append("Statikus (statical engineer)")
+        questions.append("Van-e repedés a teherhordó falakon? Egyenletesek-e a padlók?")
+        checklist.append("Ellenőrizze a függőleges és vízszintes repedéseket a falakon")
+        risk_factors.append("alapozás")
+
+    # Red-flag priority 4: Sawdust wallpaper (MEDIUM)
+    if wall_condition.get("wallpaper", False):
+        red_flags.append({
+            "risk": "MEDIUM",
+            "title": "Fűrészporos tapéta a falakon",
+            "detail": (
+                "A fűrészporos tapéta alatt általában nincs vakolat. "
+                "Eltávolítása plusz költséggel és Q3 minőségű újravakolással jár."
+            ),
+            "estimated_cost": "80 000 - 100 000 Ft anyag, 180 000 - 280 000 Ft munkadíj",
+            "action": "Tapéta kaparás és Q3 minőségű vakolás szükséges.",
+        })
+        checklist.append("Koppintson a falakra — üreges hang tapéta alatti vakolathiányra utal")
+        risk_factors.append("tapéta")
+
+    # Build confidence
+    num_red_flags = len(red_flags)
+    if num_red_flags == 0:
+        confidence_score = 0.9
+        confidence_reasoning = "No red flags detected for this building profile."
+    elif num_red_flags <= 2:
+        confidence_score = 0.8
+        confidence_reasoning = f"{num_red_flags} red flag(s) identified with high-certainty building-era matches."
+    else:
+        confidence_score = 0.75
+        confidence_reasoning = f"{num_red_flags} red flags identified; some based on era defaults rather than confirmed data."
+
+    # Overall risk
+    if any(r.get("risk") == "CRITICAL" for r in red_flags):
+        overall_risk = "CRITICAL"
+    elif any(r.get("risk") == "HIGH" for r in red_flags):
+        overall_risk = "HIGH"
+    elif red_flags:
+        overall_risk = "MEDIUM"
+    else:
+        overall_risk = "LOW"
+
+    summary_hu = (
+        f"A(z) {params.get('area_sqm', '?')} nm-es, "
+        f"{params.get('building_type', '?')} építésű lakás "
+        f"átvizsgálása {num_red_flags} potenciális kockázatot tárt fel. "
+        f"Összesített kockázati szint: {overall_risk}. "
+        + ("A legkritikusabb: kohósalak a födémben." if has_slag else "")
+    )
+
+    return {
+        "status": "ok",
+        "data": {
+            "red_flags": red_flags,
+            "overall_risk": overall_risk,
+            "summary_hu": summary_hu,
+            "inspection_checklist": checklist,
+            "questions_for_seller": questions,
+            "recommended_experts": recommended_experts,
+            "risk_factors": risk_factors,
+            "confidence": {
+                "score": confidence_score,
+                "reasoning": confidence_reasoning,
+            },
+        },
+        "trace_id": trace_id,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Construction Planner handler (Tab 2: technical sequencing & cost logic)
+# ---------------------------------------------------------------------------
+
+async def handle_construction_planning(
+    params: dict[str, Any],
+    policy_service: Any,
+    skill_registry: Any,
+    trace_id: str,
+) -> dict[str, Any]:
+    """
+    Construction Planner handler — step-by-step renovation sequencing with
+    itemized costs per phase.
+
+    Input contract:
+      { "area_sqm": float, "building_era": str|None,
+        "scope_flags": {"plumbing": bool, "electrical": bool,
+                        "flooring": bool, "demolition": bool,
+                        "slag": bool, "built_in_shower": bool},
+        "wall_condition": {"wallpaper": bool},
+        "want_sequence": bool }
+
+    Output contract:
+      { "phases": [{"step": int, "name": str, "description": str,
+                    "material_cost_range": str, "labor_cost_range": str}],
+        "total_estimate": {"low_huf": int, "mid_huf": int, "high_huf": int},
+        "warnings": [...], "confidence": {...} }
+    """
+    sr = policy_service.check_structural("construction_planner", "generate_sequence", trace_id)
+    if not sr.passed:
+        return {"status": "error", "error": sr.reason, "trace_id": trace_id}
+
+    sem = await policy_service.check_semantic(params, trace_id)
+    if not sem.passed:
+        return {"status": "error", "error": sem.reason, "trace_id": trace_id}
+
+    # Progressive disclosure: load construction-planner skill
+    instructions = skill_registry.load_instructions("construction-planner")
+
+    area_sqm = params.get("area_sqm", 55.0)
+    scope = params.get("scope_flags", {})
+    wall_condition = params.get("wall_condition", {})
+    has_slag = scope.get("slag", False)
+    has_shower = scope.get("built_in_shower", False)
+
+    phases: list[dict] = []
+    warnings: list[str] = []
+    total_low = 0
+    total_high = 0
+
+    # Phase 0: Slag removal (if applicable)
+    if has_slag:
+        slag_low = int(3000 * area_sqm)
+        slag_high = int(5000 * area_sqm)
+        phases.append({
+            "step": 0,
+            "name": "Salak bontás és elszállítás",
+            "description": "Kohósalak eltávolítása a födémből, statikus felügyelet mellett",
+            "material_cost_range": "0 Ft (nincs anyagköltség)",
+            "labor_cost_range": f"{slag_low:,} - {slag_high:,} Ft",
+        })
+        total_low += slag_low
+        total_high += slag_high
+        warnings.append(
+            "Salak eltávolítás előtt statikus szakvélemény szükséges!"
+        )
+
+    # Phase 1: Demolition
+    if scope.get("demolition", True):
+        demo_low = int(1000 * area_sqm)
+        demo_high = int(2000 * area_sqm)
+        phases.append({
+            "step": max(p["step"] for p in phases) + 1 if phases else 1,
+            "name": "Bontás (Demolition)",
+            "description": "Régi burkolatok, válaszfalak, szerelvények eltávolítása",
+            "material_cost_range": "0 - 50 000 Ft",
+            "labor_cost_range": f"{demo_low:,} - {demo_high:,} Ft",
+        })
+        total_low += demo_low + 25000
+        total_high += demo_high + 50000
+
+    # Phase 2: Masonry
+    masonry_low = 249000
+    masonry_high = 402000
+    mason_labor_low = 280000
+    mason_labor_high = 420000
+    phases.append({
+        "step": max(p["step"] for p in phases) + 1 if phases else 1,
+        "name": "Kőműves (Masonry)",
+        "description": "Új falak építése, födém erősítés, ajtónyílások kialakítása",
+        "material_cost_range": f"{masonry_low:,} - {masonry_high:,} Ft",
+        "labor_cost_range": f"{mason_labor_low:,} - {mason_labor_high:,} Ft",
+    })
+    total_low += masonry_low + mason_labor_low
+    total_high += masonry_high + mason_labor_high
+
+    # Phase 3: Rough-in (plumbing + electrical)
+    if scope.get("plumbing", False) or scope.get("electrical", True):
+        rough_low = int(200000 + 500000)
+        rough_high = int(500000 + 1000000)
+        phases.append({
+            "step": max(p["step"] for p in phases) + 1,
+            "name": "Gépészet (Plumbing & Electrical)",
+            "description": "Vízvezeték, villanyvezeték, fűtéscsövek elhelyezése",
+            "material_cost_range": "200 000 - 500 000 Ft",
+            "labor_cost_range": "500 000 - 1 000 000 Ft",
+        })
+        total_low += rough_low
+        total_high += rough_high
+
+    # Phase 4: Plastering (with wallpaper surcharge if applicable)
+    plaster_material = 80000
+    plaster_labor_low = 180000
+    plaster_labor_high = 380000
+    if wall_condition.get("wallpaper", False):
+        plaster_material += 100000  # scraping surcharge
+        plaster_labor_low += 180000
+        plaster_labor_high += 280000
+        warnings.append("Fűrészporos tapéta miatt kaparás és Q3 vakolás szükséges!")
+    phases.append({
+        "step": max(p["step"] for p in phases) + 1,
+        "name": "Vakolás és glettelés (Plastering)",
+        "description": (
+            "Tapéta kaparás, csiszolás, vakolás, glettelés"
+            if wall_condition.get("wallpaper", False)
+            else "Csiszolás, vakolás, glettelés"
+        ),
+        "material_cost_range": f"{plaster_material:,} - {plaster_material + 100000:,} Ft",
+        "labor_cost_range": f"{plaster_labor_low:,} - {plaster_labor_high:,} Ft",
+    })
+    total_low += plaster_material + plaster_labor_low
+    total_high += (plaster_material + 100000) + plaster_labor_high
+
+    # Phase 5: Flooring (with optional waterproofing upgrade)
+    floor_material = 130000
+    floor_labor_low = 300000
+    floor_labor_high = 600000
+    if has_shower:
+        floor_material += 130000
+        floor_labor_low += 50000
+        floor_labor_high += 80000
+        warnings.append("Épített zuhany miatt cementbázisú szigetelés szükséges!")
+    phases.append({
+        "step": max(p["step"] for p in phases) + 1,
+        "name": "Burkolás (Flooring & Tiling)",
+        "description": (
+            "Csempe/járólap burkolás, cementbázisú vízszigetelés"
+            if has_shower
+            else "Csempe/járólap burkolás"
+        ),
+        "material_cost_range": f"{floor_material:,} - {floor_material + 120000:,} Ft",
+        "labor_cost_range": f"{floor_labor_low:,} - {floor_labor_high:,} Ft",
+    })
+    total_low += floor_material + floor_labor_low
+    total_high += (floor_material + 120000) + floor_labor_high
+
+    # Phase 6: Painting & fixtures
+    paint_material = 50000
+    paint_labor_low = 200000
+    paint_labor_high = 400000
+    phases.append({
+        "step": max(p["step"] for p in phases) + 1,
+        "name": "Festés és szerelés (Painting & Fixtures)",
+        "description": "Falfestés, kapcsolók, dugaljak, lámpák, ajtók szerelése",
+        "material_cost_range": f"{paint_material:,} - {paint_material + 50000:,} Ft",
+        "labor_cost_range": f"{paint_labor_low:,} - {paint_labor_high:,} Ft",
+    })
+    total_low += paint_material + paint_labor_low
+    total_high += (paint_material + 50000) + paint_labor_high
+
+    total_mid = (total_low + total_high) // 2
+
+    return {
+        "status": "ok",
+        "data": {
+            "phases": phases,
+            "total_estimate": {
+                "low_huf": total_low,
+                "mid_huf": total_mid,
+                "high_huf": total_high,
+            },
+            "warnings": warnings,
+            "confidence": {
+                "score": 0.8 if not has_slag else 0.75,
+                "reasoning": (
+                    "Construction plan based on area-scaled corpus averages. "
+                    "Actual costs depend on exact building conditions."
+                ),
+            },
+        },
+        "trace_id": trace_id,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Handler resolver
+# ---------------------------------------------------------------------------
+
+HANDLER_MAP: dict[str, Any] = {
+    "cost_estimation": handle_cost_estimation,
+    "ingestion": handle_ingestion,
+    "market_analysis": handle_market_analysis,
+    "due_diligence": handle_due_diligence,
+    "expert_interview": handle_expert_interview,
+    "construction_planning": handle_construction_planning,
+}
+
+
+def resolve_handler(intent: str) -> Any:
+    """Resolve a canonical intent name to its async handler function."""
+    handler = HANDLER_MAP.get(intent)
+    if handler is None:
+        raise ValueError(f"Unknown intent: '{intent}'. Available: {list(HANDLER_MAP.keys())}")
+    return handler
