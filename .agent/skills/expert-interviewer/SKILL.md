@@ -25,11 +25,23 @@ calls:
 
 ## Instructions (Load after Metadata)
 
+### Hungarian Language Mandate
+
+ALL red-flag titles, descriptions, recommended actions, and user-facing output
+MUST be in Hungarian. English translations are only for internal review.
+The following Hungarian terms are MANDATORY:
+- "Kohósalak" (not "slag")
+- "Fűrészporos tapéta" (not "sawdust wallpaper")
+- "Alumínium vezeték" (not "aluminium wiring")
+- "Födém megerősítés" (not "floor reinforcement")
+- "Betontálcás födém" (not "concrete tray slab")
+- "Tégla boltíves acél gerendás födém" (not "brick arch steel beam slab")
+
 ### Red-Flag Identification (Priority Order)
 
 The Expert Interviewer MUST check red flags in this priority order, because
 structural risks (high cost, deal-breaker potential) must be surfaced before
-cosmetic issues:
+cosmetic issues. All output MUST be in Hungarian.
 
 1. **PRE-1960 SLAB: Kohósalak (Slag)**
    - Check: Was the building constructed before 1960? Is the floor "acél gerendás födém kohósalakkal"?

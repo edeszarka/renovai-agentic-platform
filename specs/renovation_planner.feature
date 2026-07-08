@@ -7,6 +7,8 @@ Feature: Construction Planner — Technical Sequencing & Cost Logic (Tab 2)
     Given the system has a Construction Planner agent specialized in technical sequencing
     And the system enforces: Demolition before Masonry before Finishing
     And every response includes a confidence score from ConfidenceModel
+    And all estimates MUST be in HUF, adjusted for inflation using KSH CPI data
+    And all phase names and descriptions MUST be in Hungarian by default
 
   Scenario: Full renovation strictly follows Demolition -> Masonry -> Finishing order
     Given a buyer requests a full renovation plan for a 55 nm apartment
@@ -55,6 +57,18 @@ Feature: Construction Planner — Technical Sequencing & Cost Logic (Tab 2)
     When the plan includes any structural modification (wall removal, reinforcement)
     Then the Construction Planner MUST NOT emit the final plan directly
     And the system MUST generate a Vibe Diff explaining the reasoning
+    And the Vibe Diff explanation_hu MUST be in Hungarian
     And the Vibe Diff MUST include: "Why each step is ordered as proposed"
     And the Vibe Diff MUST explain: "Cost impact of structural vs cosmetic choices"
     And the final plan MUST only be emitted after human review of the Vibe Diff
+
+  Scenario: Full vs Partial renovation toggle changes phase count and costs
+    Given a buyer selects "Teljes felújítás" (Full renovation) for a 55 nm apartment
+    When the Construction Planner generates the sequence
+    Then all 7 phases MUST be present (Step 0 through Step 6)
+    And the total estimate MUST include all phases
+
+    Given a buyer selects "Részleges felújítás" (Partial renovation) with only flooring and painting
+    When the Construction Planner generates the sequence
+    Then only the selected phases MUST be included
+    And omitted phases MUST NOT appear in the cost total

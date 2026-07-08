@@ -99,12 +99,16 @@ KEYWORD_INTENT_MAP: list[tuple[str, str, list[str]]] = [
      ["mire figyeljek", "épületfizikai", "vörös zászló", "red flag",
       "kockázat", "átvilágítás", "salak", "kohósalak",
       "teherhordó fal", "építési korszak", "alapozás",
-      "mit nézzek meg vásárlás előtt", "milyen állapotban van"]),
+      "mit nézzek meg vásárlás előtt", "milyen állapotban van",
+      "boltíves", "födém", "betontálcás", "vevői felkészítő",
+      "szakvélemény", "mit nézzek", "tégla boltíves"]),
     (Intent.CONSTRUCTION_PLANNING, "construction_planning",
      ["sorrend", "ütemezés", "előbb csinálni", "lépés",
       "milyen sorrendben", "építési sorrend", "technológiai sorrend",
       "bontás után", "kőműves", "burkolás előtt",
-      "teljes felújítás terv", "lépésről lépésre"]),
+      "teljes felújítás terv", "lépésről lépésre",
+      "részleges felújítás", "felújítási tervező",
+      "tervezés", "ütemterv", "fázis"]),
 ]
 
 
@@ -154,8 +158,8 @@ Classify the user's Hungarian question into exactly one of these intents:
 - market_query: User asks about market statistics, averages, trends, or comparisons across the quote corpus.
 - due_diligence: User asks about pre-purchase inspection, red flags, questions for the seller, building-specific risks.
 - ingestion: User uploads or references an XLSX/Excel file containing a contractor quote for parsing.
-- expert_interview: User asks about building-physics risks, structural condition, historical-era-specific problems (slag, aluminium wiring), or what to inspect before buying.
-- construction_planning: User asks about the step-by-step renovation sequence, construction order, technical feasibility, or what phase comes next.
+- expert_interview: User asks about building-physics risks, structural condition, historical-era-specific problems (kohósalak, alumínium vezeték), építési korszak, or what to inspect before buying. This is Tab 1: Vevői Felkészítő / Buyer Preparation.
+- construction_planning: User asks about the step-by-step renovation sequence (sorrend, ütemezés), construction order, technical feasibility, teljes/részleges felújítás terv. This is Tab 2: Felújítási Tervező / Renovation Planner.
 - combined: The question clearly spans multiple intents (e.g., both cost AND due-diligence, or interview AND planning).
 - unknown: None of the above match with confidence.
 
@@ -164,10 +168,13 @@ Extract any parameters you can identify from the question:
 - area_sqm (nm): number
 - num_rooms: integer
 - building_type: "panel", "tégla", "újépítés", or null
-- building_era: string or null
-- scope_flags: object with boolean flags for plumbing, electrical, flooring, demolition, slag
+- building_era: string or null (e.g. "1920 előtt", "1920-1965", "1965-1990", "1990 után")
+- floor_construction: "acél gerendás", "betontálcás", or null
+- wall_condition: object with "wallpaper": bool if fűrészporos tapéta mentioned
+- scope_flags: object with boolean flags for plumbing, electrical, flooring, demolition, slag, built_in_shower
+- renovation_scope: "full" or "partial" if mentioned
 
-Respond with JSON only. No markdown, no explanation."""
+Respond with JSON only. No markdown, no explanation. All parameters in Hungarian terms."""
 
 
 def _build_classification_prompt(question_hu: str) -> str:
