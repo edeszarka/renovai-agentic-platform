@@ -39,6 +39,10 @@ class VibeDiff:
             "model": self.model,
         }
 
+    def get_explanation(self, lang: str = "HU") -> str:
+        """Return explanation in the requested language (HU default)."""
+        return self.explanation_hu if lang == "HU" else self.explanation_en
+
 
 VIBE_DIFF_SYSTEM_PROMPT = """You are a senior renovation advisor explaining an agent's reasoning to a human reviewer.
 
@@ -59,7 +63,10 @@ Respond with JSON only:
   "key_drivers": ["driver 1", "driver 2", ...]
 }
 
-Temperature: 0.15 — stick to the facts, no embellishment."""
+Temperature: 0.15 — stick to the facts, no embellishment.
+
+IMPORTANT: explanation_hu is the MANDATORY default for end customers.
+Only supply explanation_en as an internal fallback for the human-in-the-loop reviewer."""
 
 
 class VibeDiffEngine:

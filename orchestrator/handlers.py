@@ -503,25 +503,48 @@ async def handle_expert_interview(
             checklist.append("Kérje el a villanyhálózati dokumentációt")
             risk_factors.append("alumínium vezeték")
 
-    # Red-flag priority 3: Pre-1920 brick foundation (HIGH)
+    # Red-flag priority 3: Pre-1920 brick foundation (HIGH) - Födém megerősítés
     if building_era and building_era.isdigit() and int(building_era) < 1920:
         red_flags.append({
             "risk": "HIGH",
             "title": "Alapozási kockázat (régi tégla épület)",
             "detail": (
                 "Az 1920 előtt épült tégla épületek alapozása gyakran "
-                "mészkő vagy tégla alap, ami idővel süllyedhet."
+                "mészkő vagy tégla alap, ami idővel süllyedhet. "
+                "A tégla boltíves acél gerendás födém megerősítése szükséges."
             ),
-            "estimated_cost": "Változó — statikus szakvélemény szükséges",
+            "estimated_cost": (
+                "Födém megerősítés: ~402 000 Ft anyag, "
+                "320 000 - 420 000 Ft munkadíj"
+            ),
             "action": (
                 "Statikus szakvélemény a födém és alapozás állapotáról. "
-                "Tégla boltíves acél gerendás födém esetén erősítés lehet szükséges."
+                "Tégla boltíves acél gerendás födém esetén erősítés szükséges."
             ),
         })
         recommended_experts.append("Statikus (statical engineer)")
         questions.append("Van-e repedés a teherhordó falakon? Egyenletesek-e a padlók?")
         checklist.append("Ellenőrizze a függőleges és vízszintes repedéseket a falakon")
         risk_factors.append("alapozás")
+
+    # Red-flag: 1920-1965 betontálcás födém (MEDIUM) — walls can start from slab
+    if building_era and building_era.isdigit() and 1920 <= int(building_era) <= 1965:
+        if "betontálcás" in floor_construction or "beton" in floor_construction:
+            red_flags.append({
+                "risk": "MEDIUM",
+                "title": "Betontálcás födém — falak indíthatók a födémről",
+                "detail": (
+                    "A betontálcás vasbeton gerendás födém esetén az új falak "
+                    "közvetlenül a födémről indíthatók, megerősítés nem szükséges."
+                ),
+                "estimated_cost": "Nincs plusz költség (megerősítés nem szükséges)",
+                "action": (
+                    "Beton tálcáról indítható a fal, megerősítés nem szükséges. "
+                    "Tervezéskor ezt vegye figyelembe."
+                ),
+            })
+            checklist.append("Ellenőrizze a födém típusát — betontálcás esetén nincs szükség megerősítésre")
+            risk_factors.append("betontálcás födém")
 
     # Red-flag priority 4: Sawdust wallpaper (MEDIUM)
     if wall_condition.get("wallpaper", False):
@@ -629,8 +652,21 @@ async def handle_construction_planning(
     area_sqm = params.get("area_sqm", 55.0)
     scope = params.get("scope_flags", {})
     wall_condition = params.get("wall_condition", {})
+    building_era = params.get("building_era", "")
+    floor_construction = params.get("floor_construction", "")
+
+    # Cascading logic: pre-1920 buildings with door work imply slag risk
     has_slag = scope.get("slag", False)
+    if not has_slag and building_era and building_era.isdigit() and int(building_era) < 1920:
+        if scope.get("door_replacement", False) or scope.get("flooring", False):
+            has_slag = True
+            warnings.append(
+                "1920 előtti épületben az ajtó-/padlómunka kohósalak "
+                "veszélyt jelezhet. Statikus vizsgálat javasolt!"
+            )
+
     has_shower = scope.get("built_in_shower", False)
+    is_full_renovation = params.get("renovation_scope", "full") == "full"
 
     phases: list[dict] = []
     warnings: list[str] = []
@@ -654,8 +690,8 @@ async def handle_construction_planning(
             "Salak eltávolítás előtt statikus szakvélemény szükséges!"
         )
 
-    # Phase 1: Demolition
-    if scope.get("demolition", True):
+    # Phase 1: Demolition (skippable in partial mode)
+    if scope.get("demolition", is_full_renovation):
         demo_low = int(1000 * area_sqm)
         demo_high = int(2000 * area_sqm)
         phases.append({
@@ -668,23 +704,48 @@ async def handle_construction_planning(
         total_low += demo_low + 25000
         total_high += demo_high + 50000
 
-    # Phase 2: Masonry
-    masonry_low = 249000
-    masonry_high = 402000
-    mason_labor_low = 280000
-    mason_labor_high = 420000
-    phases.append({
-        "step": max(p["step"] for p in phases) + 1 if phases else 1,
-        "name": "Kőműves (Masonry)",
-        "description": "Új falak építése, födém erősítés, ajtónyílások kialakítása",
-        "material_cost_range": f"{masonry_low:,} - {masonry_high:,} Ft",
-        "labor_cost_range": f"{mason_labor_low:,} - {mason_labor_high:,} Ft",
-    })
-    total_low += masonry_low + mason_labor_low
-    total_high += masonry_high + mason_labor_high
+    # Phase 2: Masonry (+ floor reinforcement for pre-1920 with acél gerendás, skippable in partial mode)
+    if is_full_renovation or scope.get("masonry", True):
+        masonry_low = 249000
+        masonry_high = 402000
+        mason_labor_low = 280000
+        mason_labor_high = 420000
 
-    # Phase 3: Rough-in (plumbing + electrical)
-    if scope.get("plumbing", False) or scope.get("electrical", True):
+        floor_reinforcement = False
+        if building_era and building_era.isdigit() and int(building_era) < 1920:
+            if "acél" in floor_construction or "boltíves" in floor_construction or not floor_construction:
+                floor_reinforcement = True
+                masonry_low = 402000  # Reinforced floor material cost
+                masonry_high = 402000
+                mason_labor_low = 320000
+                mason_labor_high = 420000
+                warnings.append(
+                    "Födém megerősítés szükséges a gerendák között "
+                    "(tégla boltíves acél gerendás födém)!"
+                )
+        elif building_era and building_era.isdigit() and 1920 <= int(building_era) <= 1965:
+            if "betontálcás" in floor_construction or "beton" in floor_construction:
+                # No reinforcement needed — walls can start from the slab
+                pass
+
+        masonry_desc = (
+            "Új falak építése, födém erősítés (acél gerendák között), "
+            "ajtónyílások kialakítása"
+            if floor_reinforcement else
+            "Új falak építése, ajtónyílások kialakítása, betontálcáról indítható"
+        )
+        phases.append({
+            "step": max(p["step"] for p in phases) + 1 if phases else 1,
+            "name": "Kőműves (Masonry)",
+            "description": masonry_desc,
+            "material_cost_range": f"{masonry_low:,} - {masonry_high:,} Ft",
+            "labor_cost_range": f"{mason_labor_low:,} - {mason_labor_high:,} Ft",
+        })
+        total_low += masonry_low + mason_labor_low
+        total_high += masonry_high + mason_labor_high
+
+    # Phase 3: Rough-in (plumbing + electrical, skippable in partial mode)
+    if is_full_renovation or scope.get("plumbing", False) or scope.get("electrical", False):
         rough_low = int(200000 + 500000)
         rough_high = int(500000 + 1000000)
         phases.append({
@@ -697,65 +758,68 @@ async def handle_construction_planning(
         total_low += rough_low
         total_high += rough_high
 
-    # Phase 4: Plastering (with wallpaper surcharge if applicable)
-    plaster_material = 80000
-    plaster_labor_low = 180000
-    plaster_labor_high = 380000
-    if wall_condition.get("wallpaper", False):
-        plaster_material += 100000  # scraping surcharge
-        plaster_labor_low += 180000
-        plaster_labor_high += 280000
-        warnings.append("Fűrészporos tapéta miatt kaparás és Q3 vakolás szükséges!")
-    phases.append({
-        "step": max(p["step"] for p in phases) + 1,
-        "name": "Vakolás és glettelés (Plastering)",
-        "description": (
-            "Tapéta kaparás, csiszolás, vakolás, glettelés"
-            if wall_condition.get("wallpaper", False)
-            else "Csiszolás, vakolás, glettelés"
-        ),
-        "material_cost_range": f"{plaster_material:,} - {plaster_material + 100000:,} Ft",
-        "labor_cost_range": f"{plaster_labor_low:,} - {plaster_labor_high:,} Ft",
-    })
-    total_low += plaster_material + plaster_labor_low
-    total_high += (plaster_material + 100000) + plaster_labor_high
+    # Phase 4: Plastering (with wallpaper surcharge if applicable, skippable in partial mode)
+    if is_full_renovation or scope.get("plastering", True):
+        plaster_material = 80000
+        plaster_labor_low = 180000
+        plaster_labor_high = 380000
+        if wall_condition.get("wallpaper", False):
+            plaster_material += 100000  # scraping surcharge
+            plaster_labor_low += 180000
+            plaster_labor_high += 280000
+            warnings.append("Fűrészporos tapéta miatt kaparás és Q3 vakolás szükséges!")
+        phases.append({
+            "step": max(p["step"] for p in phases) + 1,
+            "name": "Vakolás és glettelés (Plastering)",
+            "description": (
+                "Tapéta kaparás, csiszolás, vakolás, glettelés"
+                if wall_condition.get("wallpaper", False)
+                else "Csiszolás, vakolás, glettelés"
+            ),
+            "material_cost_range": f"{plaster_material:,} - {plaster_material + 100000:,} Ft",
+            "labor_cost_range": f"{plaster_labor_low:,} - {plaster_labor_high:,} Ft",
+        })
+        total_low += plaster_material + plaster_labor_low
+        total_high += (plaster_material + 100000) + plaster_labor_high
 
-    # Phase 5: Flooring (with optional waterproofing upgrade)
-    floor_material = 130000
-    floor_labor_low = 300000
-    floor_labor_high = 600000
-    if has_shower:
-        floor_material += 130000
-        floor_labor_low += 50000
-        floor_labor_high += 80000
-        warnings.append("Épített zuhany miatt cementbázisú szigetelés szükséges!")
-    phases.append({
-        "step": max(p["step"] for p in phases) + 1,
-        "name": "Burkolás (Flooring & Tiling)",
-        "description": (
-            "Csempe/járólap burkolás, cementbázisú vízszigetelés"
-            if has_shower
-            else "Csempe/járólap burkolás"
-        ),
-        "material_cost_range": f"{floor_material:,} - {floor_material + 120000:,} Ft",
-        "labor_cost_range": f"{floor_labor_low:,} - {floor_labor_high:,} Ft",
-    })
-    total_low += floor_material + floor_labor_low
-    total_high += (floor_material + 120000) + floor_labor_high
+    # Phase 5: Flooring (with optional waterproofing upgrade, skippable in partial mode)
+    if is_full_renovation or scope.get("flooring", True):
+        floor_material = 130000
+        floor_labor_low = 300000
+        floor_labor_high = 600000
+        if has_shower:
+            floor_material += 130000
+            floor_labor_low += 50000
+            floor_labor_high += 80000
+            warnings.append("Épített zuhany miatt cementbázisú szigetelés szükséges!")
+        phases.append({
+            "step": max(p["step"] for p in phases) + 1,
+            "name": "Burkolás (Flooring & Tiling)",
+            "description": (
+                "Csempe/járólap burkolás, cementbázisú vízszigetelés"
+                if has_shower
+                else "Csempe/járólap burkolás"
+            ),
+            "material_cost_range": f"{floor_material:,} - {floor_material + 120000:,} Ft",
+            "labor_cost_range": f"{floor_labor_low:,} - {floor_labor_high:,} Ft",
+        })
+        total_low += floor_material + floor_labor_low
+        total_high += (floor_material + 120000) + floor_labor_high
 
-    # Phase 6: Painting & fixtures
-    paint_material = 50000
-    paint_labor_low = 200000
-    paint_labor_high = 400000
-    phases.append({
-        "step": max(p["step"] for p in phases) + 1,
-        "name": "Festés és szerelés (Painting & Fixtures)",
-        "description": "Falfestés, kapcsolók, dugaljak, lámpák, ajtók szerelése",
-        "material_cost_range": f"{paint_material:,} - {paint_material + 50000:,} Ft",
-        "labor_cost_range": f"{paint_labor_low:,} - {paint_labor_high:,} Ft",
-    })
-    total_low += paint_material + paint_labor_low
-    total_high += (paint_material + 50000) + paint_labor_high
+    # Phase 6: Painting & fixtures (skippable in partial mode)
+    if is_full_renovation or scope.get("painting", True):
+        paint_material = 50000
+        paint_labor_low = 200000
+        paint_labor_high = 400000
+        phases.append({
+            "step": max(p["step"] for p in phases) + 1,
+            "name": "Festés és szerelés (Painting & Fixtures)",
+            "description": "Falfestés, kapcsolók, dugaljak, lámpák, ajtók szerelése",
+            "material_cost_range": f"{paint_material:,} - {paint_material + 50000:,} Ft",
+            "labor_cost_range": f"{paint_labor_low:,} - {paint_labor_high:,} Ft",
+        })
+        total_low += paint_material + paint_labor_low
+        total_high += (paint_material + 50000) + paint_labor_high
 
     total_mid = (total_low + total_high) // 2
 
