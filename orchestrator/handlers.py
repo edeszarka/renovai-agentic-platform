@@ -655,6 +655,12 @@ async def handle_construction_planning(
     building_era = params.get("building_era", "")
     floor_construction = params.get("floor_construction", "")
 
+    has_shower = scope.get("built_in_shower", False)
+    is_full_renovation = params.get("renovation_scope", "full") == "full"
+
+    phases: list[dict] = []
+    warnings: list[str] = []
+
     # Cascading logic: pre-1960 buildings with floor work trigger full Slag Chain
     era_int = int(building_era) if building_era and building_era.isdigit() else 9999
     has_slag = scope.get("slag", False)
@@ -665,12 +671,6 @@ async def handle_construction_planning(
             "1960 előtti épületben a padlómunka kohósalak "
             "láncreakciót indíthat el. Statikus vizsgálat kötelező!"
         )
-
-    has_shower = scope.get("built_in_shower", False)
-    is_full_renovation = params.get("renovation_scope", "full") == "full"
-
-    phases: list[dict] = []
-    warnings: list[str] = []
     total_low = 0
     total_high = 0
     total_labor_low = 0

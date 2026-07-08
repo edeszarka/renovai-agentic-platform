@@ -18,7 +18,7 @@ The system follows a **modular, service-oriented architecture** with four primar
 
 **RAG Pipeline** (`renovai/rag/`):
 - Hybrid retrieval: semantic search (ChromaDB + Gemini embeddings) + keyword search (BM25), merged with bonus scoring for overlap, filtered by similarity threshold, truncated to token budget
-- Recursive semantic chunking of Markdown documents (H3 → paragraphs → sentences) with configurable overlap
+- Recursive structure-aware chunking of Markdown documents (H2 → H3 → paragraphs → sentences) with configurable overlap
 - Multi-model fallback for generation: tries up to 8 Gemini model variants in sequence with exponential backoff
 - Citation extraction and confidence scoring based on source count
 
@@ -55,7 +55,7 @@ The system follows a **modular, service-oriented architecture** with four primar
 ## 3. Complex Engineering Challenges
 
 ### 3a. Hybrid Retrieval with Result Fusion
-The `retriever.py` module implements a **late-fusion hybrid search** combining semantic (ChromaDB cosine distance) and keyword (BM25) scores. The innovation is the fusion strategy: results appearing in both sets receive a +0.15 boost, recognizing that consensus between two independent retrieval methods is a stronger relevance signal. Scores are independently normalized (cosine distance → similarity, BM25 → min-max scaled) before fusion, then threshold-filtered and top-ranked. This compensates for the small corpus (30 quotes) where pure semantic search can miss keyword-specific matches.
+The `retriever.py` module implements a **hybrid search** combining semantic (ChromaDB cosine distance) and keyword (BM25) scores with a simple late-fusion strategy: results appearing in both sets receive a +0.15 boost, leveraging consensus between two independent retrieval methods as a relevance signal. Scores are independently normalized (cosine distance → similarity, BM25 → min-max scaled) before fusion, then threshold-filtered and top-ranked. This compensates for the small corpus (30 quotes) where pure semantic search can miss keyword-specific matches.
 
 ### 3b. Robust XLSX Ingestion from Heterogeneous Real-World Documents
 The `ingestion/` module parses **unstructured, multi-style XLSX contractor quotes** — a classic messy data problem. The pipeline:
