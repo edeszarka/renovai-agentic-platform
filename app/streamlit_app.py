@@ -829,6 +829,24 @@ elif tab_selection == _("nav.tab2"):
                             for w in warnings:
                                 st.warning(w)
 
+                        # Display mandatory Vibe Diff (Hungarian)
+                        vibe = data.get("vibe_diff")
+                        if vibe:
+                            vibe_hu = vibe.get("explanation_hu", "")
+                            vibe_en = vibe.get("explanation_en", "")
+                            is_hu = st.session_state.get("lang", "HU") == "HU"
+                            lang = st.session_state.get("lang", "HU")
+                            from renovai.safety.vibe_diff import VibeDiff, VibeDiffEngine
+
+                            st.divider()
+                            with st.expander(
+                                "💡 Költségindoklás (Vibe Diff)"
+                                if is_hu else
+                                "💡 Cost Explanation (Vibe Diff)",
+                                expanded=vibe.get("total_exceeds_10m", False),
+                            ):
+                                st.markdown(vibe_hu if is_hu else vibe_en)
+
                 except Exception as exc:
                     logger.error("Renovation plan error", exc_info=True)
                     st.error(_("tab2.error"))
