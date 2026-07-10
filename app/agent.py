@@ -1,26 +1,40 @@
 import os
+import subprocess
 import sys
 from pathlib import Path
-
-import google.auth
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
 from google.adk.agents import Agent as ADKAgent
 from google.adk.apps import App
-from google.adk.tools.mcp_tool import MCPTool
+from google.adk.tools.mcp_tool import McpToolset, SseConnectionParams
 
 load_dotenv()
 
-_, project_id = google.auth.default()
-os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
+if "GOOGLE_CLOUD_PROJECT" not in os.environ:
+    try:
+        import google.auth
+        _, project_id = google.auth.default()
+    except Exception:
+        project_id = None
+    if not project_id:
+        try:
+            project_id = (
+                subprocess.check_output(
+                    [r"C:\Users\Edesz\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd", "config", "get", "project"],
+                    text=True, timeout=5,
+                ).strip()
+            )
+        except Exception:
+            project_id = "project-d065e38c-b25a-4843-973"
+    os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
 MCP_SERVER_URL = os.getenv(
     "MCP_SERVER_URL",
-    "https://renovai-mcp-server-83670173168.us-central1.run.app",
+    "https://renovai-mcp-server-fxedmdu3vq-uc.a.run.app",
 )
 
 root_agent = ADKAgent(
@@ -41,18 +55,18 @@ root_agent = ADKAgent(
     ),
 )
 
-mcp_tool = MCPTool(
-    server_name="renovai",
-    url=MCP_SERVER_URL,
-)
-root_agent.tools.append(mcp_tool)
+_mcp_toolset: McpToolset | None = None
 
 app = App(
     root_agent=root_agent,
     name="renovai-capstone",
 )
 
-app = App(
-    root_agent=root_agent,
-    name="app",
-)
+
+async def ensure_mcp_tools():
+    global _mcp_toolset
+    if _mcp_toolset is None:
+        _mcp_toolset = McpToolset(
+            connection_params=SseConnectionParams(url=MCP_SERVER_URL),
+        )
+        root_agent.tools.extend(await _mcp_toolset.get_tools())

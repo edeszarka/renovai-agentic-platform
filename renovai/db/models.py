@@ -112,6 +112,22 @@ class CPIRecord(Base):
     
     __table_args__ = (UniqueConstraint("year", "quarter", "component"),)
 
+class Listing(Base):
+    __tablename__ = "listings"
+
+    source_site: Mapped[str] = mapped_column(primary_key=True)
+    unit_id: Mapped[str] = mapped_column(primary_key=True)
+    project_name: Mapped[str]
+    district: Mapped[Optional[str]]
+    rooms: Mapped[Optional[str]]
+    area_m2: Mapped[Optional[float]]
+    floor: Mapped[Optional[int]]
+    completion_date: Mapped[Optional[str]]
+    price_huf: Mapped[Optional[int]]
+    price_per_m2: Mapped[Optional[int]]
+    scraped_at: Mapped[str]
+    url: Mapped[str]
+
 SEED_WORK_CATEGORIES = [
     ("bontás",            "Bontás",               "Demolition",       "labor"),
     ("víz_fűtés",         "Víz és fűtés",          "Plumbing/heating", "mixed"),

@@ -367,12 +367,19 @@ async def query_renovation_market(question_hu: str) -> dict:
 
 
 # SSE/HTTP app for Cloud Run deployments
+from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
+
+# Disable MCP's DNS rebinding protection so Cloud Run host headers pass through
+from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
+mcp.settings.transport_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=False,
+)
+
 sse_app = mcp.sse_app()
 
 # Cloud Run forwards requests with the public hostname in the Host header.
 # Starlette's default TrustedHostMiddleware (added by MCP's sse_app) rejects
 # non-localhost hosts, so we override it to allow all.
-from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
 for mw in sse_app.user_middleware:
     if mw.cls is TrustedHostMiddleware:
         mw.options["allowed_hosts"] = ["*"]

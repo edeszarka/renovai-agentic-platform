@@ -1,6 +1,7 @@
 # Future Ideas
 
 ## High Priority
+- [ ] From RAG -> Agentic retrival
 - [ ] Add more video transcripts
 - [ ] Implement EVALS
 - [ ] Change TabPFN to free use licence

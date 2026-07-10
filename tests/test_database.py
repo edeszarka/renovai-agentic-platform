@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from renovai.db.models import Base, Quote, LineItemORM, WorkCategory, CPIRecord
 from renovai.db.repository import QuoteRepository, CPIRepository
 from renovai.db.session import init_db
+from renovai.api.config import AppConfig
 from renovai.db.text_to_sql import TextToSQLEngine
 from renovai.ingestion.models import RenovationQuote, QuoteMetadata, LineItem
 
@@ -106,38 +107,46 @@ async def test_get_cost_stats(test_session: AsyncSession):
     assert stats["avg_labor_share"] == 0.7 # (0.6 + 0.8) / 2
 
 @pytest.mark.asyncio
-async def test_text_to_sql_safety(test_session: AsyncSession):
-    engine = TextToSQLEngine(gemini_api_key="fake")
+async def test_text_to_sql_safety():
+    cfg = MagicMock()
+    cfg.sql_provider = "groq"
+    cfg.groq_api_key = "fake"
+    cfg.groq_base_url = "https://api.groq.com/openai/v1"
+    cfg.groq_sql_model = "llama-3.3-70b-versatile"
+    engine = TextToSQLEngine(cfg)
     
-    # Mock generate_sql
-    with patch.object(TextToSQLEngine, 'generate_sql', new_callable=AsyncMock) as mock_gen:
-        mock_gen.return_value = "DELETE FROM quotes;"
-        
-        with pytest.raises(ValueError, match="Only SELECT statements are allowed"):
-            await engine.execute_query("DELETE FROM quotes;", test_session)
+    with pytest.raises(ValueError, match="Only SELECT statements are allowed"):
+        await engine.execute_query("DELETE FROM quotes;", None)
 
+@patch("renovai.db.text_to_sql.OpenAI")
 @pytest.mark.asyncio
-async def test_text_to_sql_execution(test_session: AsyncSession):
-    # Mocking Gemini completely
-    with patch("renovai.db.text_to_sql.genai.Client") as mock_client_class:
-        mock_client = mock_client_class.return_value
-        mock_resp = MagicMock()
-        mock_resp.text = "```sql\nSELECT COUNT(*) AS total FROM quotes\n```"
-        mock_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
-        
-        engine = TextToSQLEngine(gemini_api_key="fake")
-        
-        # Intersert one quote
-        repo = QuoteRepository()
-        q = RenovationQuote(
-            metadata=QuoteMetadata(file_name="test.xlsx", address_raw="D", total_labor=1, total_material=1, grand_total=2),
-            quote_style="standard_5col",
-            line_items=[], alternatives=[], not_included=[], buyer_purchases=[], general_notes=[]
-        )
-        await repo.upsert_quote(test_session, q)
-        await test_session.commit()
-        
-        result = await engine.query("Hány árajánlat van?", test_session)
-        assert result["row_count"] == 1
-        assert result["rows"][0]["total"] == 1
-        assert "SELECT COUNT(*)" in result["sql"]
+async def test_text_to_sql_execution(mock_openai_class, test_session: AsyncSession):
+    # Mock OpenAI chat completion to return SQL
+    mock_client = MagicMock()
+    mock_openai_class.return_value = mock_client
+    mock_choice = MagicMock()
+    mock_choice.message.content = "```sql\nSELECT COUNT(*) AS total FROM quotes\n```"
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create = MagicMock(return_value=mock_response)
+    
+    cfg = MagicMock()
+    cfg.sql_provider = "groq"
+    cfg.groq_api_key = "fake"
+    cfg.groq_base_url = "https://api.groq.com/openai/v1"
+    cfg.groq_sql_model = "llama-3.3-70b-versatile"
+    engine = TextToSQLEngine(cfg)
+    
+    repo = QuoteRepository()
+    q = RenovationQuote(
+        metadata=QuoteMetadata(file_name="test.xlsx", address_raw="D", total_labor=1, total_material=1, grand_total=2),
+        quote_style="standard_5col",
+        line_items=[], alternatives=[], not_included=[], buyer_purchases=[], general_notes=[]
+    )
+    await repo.upsert_quote(test_session, q)
+    await test_session.commit()
+    
+    result = await engine.query("Hány árajánlat van?", test_session)
+    assert result["row_count"] == 1
+    assert result["rows"][0]["total"] == 1
+    assert "SELECT COUNT(*)" in result["sql"]

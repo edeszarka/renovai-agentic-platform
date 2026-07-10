@@ -15,7 +15,7 @@
 """
 Deployment script for Agent Runtime.
 
-Packages the source code and deploys to Agent Runtime via
+Builds the agent engine locally and deploys it to Agent Runtime via
 the Vertex AI SDK. Intended to be called by CI/CD or directly:
 
     uv run python -m app.app_utils.deploy --project=... --region=...
@@ -24,114 +24,117 @@ the Vertex AI SDK. Intended to be called by CI/CD or directly:
 import argparse
 import json
 import os
+import re
 import subprocess
-import sys
-import tempfile
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 def export_requirements():
-    """Export locked requirements from uv lockfile."""
-    req_path = PROJECT_DIR / "app" / "app_utils" / ".requirements.txt"
+    """Export locked requirements from uv lockfile, stripping comments and editable installs."""
+    raw_path = PROJECT_DIR / "app" / "app_utils" / ".requirements-raw.txt"
+    clean_path = PROJECT_DIR / "app" / "app_utils" / ".requirements.txt"
     subprocess.run(
-        ["uv", "export", "--no-dev", "--no-hashes", "-o", str(req_path)],
-        check=True,
-        cwd=str(PROJECT_DIR),
+        ["uv", "export", "--no-dev", "--no-hashes", "-o", str(raw_path)],
+        check=True, cwd=str(PROJECT_DIR),
     )
-    return req_path
-
-
-def build_source_tarball() -> str:
-    """Create a base64-encoded tarball of the source code."""
-    import base64
-    import io
-    import tarfile
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for path in PROJECT_DIR.rglob("*"):
-            parts = path.relative_to(PROJECT_DIR).parts
-            if any(
-                p.startswith(".") or p == "__pycache__" or p == "node_modules"
-                for p in parts
-            ):
-                continue
-            if path.is_file():
-                arcname = str(path.relative_to(PROJECT_DIR))
-                info = tar.gettarinfo(str(path), arcname=arcname)
-                if info:
-                    with open(path, "rb") as f:
-                        tar.addfile(info, f)
-    return base64.b64encode(buf.getvalue()).decode()
+    lines = raw_path.read_text(encoding="utf-8").splitlines()
+    clean = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("-e "):
+            continue
+        clean.append(stripped.split(" #")[0].strip())
+    clean_path.write_text("\n".join(clean) + "\n", encoding="utf-8")
+    return clean_path
 
 
 def deploy(args: argparse.Namespace):
     """Deploy the agent to Agent Runtime."""
 
     req_path = export_requirements()
-    source_tarball = build_source_tarball()
-    size_mb = len(source_tarball) * 3 / 4 / 1024 / 1024
+    extra_packages = [
+        str(PROJECT_DIR / "app"),
+        str(PROJECT_DIR / "mcp_server"),
+        str(PROJECT_DIR / "orchestrator"),
+        str(PROJECT_DIR / "sandbox"),
+        str(PROJECT_DIR / "renovai"),
+        str(PROJECT_DIR / "demo"),
+        str(PROJECT_DIR / "scripts"),
+        str(PROJECT_DIR / "docs"),
+    ]
 
     if args.dry_run:
         print(f"[DRY-RUN] Requirements exported to: {req_path}")
-        print(f"[DRY-RUN] Source tarball size: ~{size_mb:.1f} MB (base64)")
         print(f"[DRY-RUN] Project: {args.project}")
         print(f"[DRY-RUN] Region: {args.region}")
         print(f"[DRY-RUN] Name: {args.name}")
-        print("[DRY-RUN] Entrypoint: app.agent_runtime_app:agent_runtime")
-        print("[DRY-RUN] Python: 3.12")
+        print(f"[DRY-RUN] Staging bucket: {args.staging_bucket}")
+        print(f"[DRY-RUN] Extra packages ({len(extra_packages)} dirs):")
+        for p in extra_packages:
+            print(f"    {p}")
         print("[DRY-RUN] Dry-run complete — no resources created.")
         return
 
     import vertexai
-    from vertexai.agent_engines import ReasoningEngine
+    from vertexai.agent_engines import AgentEngine
 
-    vertexai.init(project=args.project, location=args.region)
+    vertexai.init(
+        project=args.project,
+        location=args.region,
+        staging_bucket=args.staging_bucket,
+    )
 
-    env = [
-        {"name": "MCP_SERVER_URL", "value": os.getenv("MCP_SERVER_URL", "https://renovai-mcp-server-83670173168.us-central1.run.app")},
-    ]
+    from app.agent_runtime_app import _build_agent_runtime
+    local_agent = _build_agent_runtime()
 
-    existing = None
+    env_vars = {
+        "MCP_SERVER_URL": os.getenv(
+            "MCP_SERVER_URL",
+            "https://renovai-mcp-server-fxedmdu3vq-uc.a.run.app",
+        ),
+    }
+
     metadata_path = PROJECT_DIR / "deployment_metadata.json"
+    existing_rid = None
     if metadata_path.exists():
         with open(metadata_path) as f:
             metadata = json.load(f)
-        rid = metadata.get("remote_agent_runtime_id", "")
-        if rid:
-            try:
-                existing = ReasoningEngine(rid)
-                existing.get()
-            except Exception:
-                existing = None
+        existing_rid = metadata.get("remote_agent_runtime_id", "")
 
-    if existing:
+    if existing_rid and existing_rid != "None":
+        existing = AgentEngine(existing_rid)
+        print(f"Updating existing engine: {existing_rid}")
         existing.update(
-            source_code=source_tarball,
-            requirements_file=str(req_path),
+            agent_engine=local_agent,
+            requirements=str(req_path),
+            extra_packages=extra_packages,
+            env_vars=env_vars,
+            display_name=args.name,
         )
-        print(f"Updated existing engine: {existing.resource_name}")
+        print(f"Updated engine: {existing.resource_name}")
     else:
-        engine = ReasoningEngine.create(
-            display_name=args.name or "renovai-capstone",
+        engine = AgentEngine.create(
+            agent_engine=local_agent,
+            requirements=str(req_path),
+            extra_packages=extra_packages,
+            display_name=args.name,
             description="RenovAI renovation due-diligence assistant",
-            agent_framework="google-adk",
-            entrypoint_module="app.agent_runtime_app",
-            entrypoint_object="agent_runtime",
-            source_code=source_tarball,
-            requirements_file=str(req_path),
-            python_version="3.12",
-            env=env,
+            env_vars=env_vars,
+            min_instances=args.min_instances,
+            max_instances=args.max_instances,
+            resource_limits={"cpu": args.cpu, "memory": args.memory},
+            container_concurrency=args.concurrency,
         )
-        print(f"Created engine: {engine.resource_name}")
+        resource_name = engine.resource_name
+        print(f"Created engine: {resource_name}")
         with open(metadata_path, "w") as f:
             json.dump({
-                "remote_agent_runtime_id": engine.resource_name,
+                "remote_agent_runtime_id": resource_name,
                 "deployment_target": "agent_runtime",
                 "is_a2a": False,
-                "deployment_timestamp": engine.create_time.isoformat() if hasattr(engine, "create_time") else "",
+                "deployment_timestamp": str(engine.create_time) if hasattr(engine, "create_time") else "",
             }, f, indent=2)
 
 
@@ -140,6 +143,12 @@ if __name__ == "__main__":
     parser.add_argument("--project", required=True)
     parser.add_argument("--region", default="us-central1")
     parser.add_argument("--name", default="renovai-capstone")
+    parser.add_argument("--staging-bucket", default="gs://renovai-agent-runtime-staging")
+    parser.add_argument("--cpu", default="4")
+    parser.add_argument("--memory", default="8Gi")
+    parser.add_argument("--min-instances", type=int, default=1)
+    parser.add_argument("--max-instances", type=int, default=1)
+    parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--dry-run", "-n", action="store_true", help="Validate configuration without deploying")
     args = parser.parse_args()
     deploy(args)

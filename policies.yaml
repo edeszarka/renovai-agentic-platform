@@ -1,0 +1,133 @@
+# RenovAI 2.0 — Policy Server
+# Structural gating rules for Zero Ambient Authority.
+# Every tool call passes through this policy engine before execution.
+
+policies_version: 2.0.0
+
+roles:
+  gateway:
+    can_access: [routing_logs, user_queries]
+    can_execute: [classify_intent, extract_params, compose_answer]
+    cannot_access: [financial_data, sandbox_output, raw_database, vector_store]
+
+  ingestion:
+    can_access: [sandbox, raw_database, financial_data, adjusted_json]
+    can_execute: [parse_xlsx, extract_huf, adjust_inflation, write_to_db, export_markdown]
+    cannot_access: [user_queries, routing_logs, vector_store]
+
+  market_analyst:
+    can_access: [aggregate_data, sql_schema, quote_summary]
+    can_execute: [text_to_sql, query_database, generate_stats]
+    cannot_access: [sandbox, raw_quotes, user_pii, vector_store]
+
+  due_diligence:
+    can_access: [rag_pipeline, vector_store, quote_corpus, gemini_llm]
+    can_execute: [retrieve_context, generate_report, call_gemini, hybrid_search]
+    cannot_access: [sandbox, raw_database, sql_schema, user_pii]
+
+  cost_estimator:
+    can_access: [price_model, inflation_data, quote_corpus, adjusted_json]
+    can_execute: [predict_cost, find_similar, scope_match, compute_breakdown]
+    cannot_access: [sandbox, raw_database, user_pii, sql_schema]
+
+  expert_interviewer:
+    can_access: [rag_pipeline, quote_corpus, gemini_llm, red_flag_db]
+    can_execute: [generate_advisory, assess_risk, recommend_experts, retrieve_context]
+    cannot_access: [sandbox, raw_database, sql_schema, financial_data, user_pii]
+
+  construction_planner:
+    can_access: [price_model, inflation_data, quote_corpus, adjusted_json]
+    can_execute: [produce_estimate, compute_breakdown, generate_sequence, scope_match]
+    cannot_access: [sandbox, raw_database, user_pii, sql_schema, gemini_llm]
+
+structural_checks:
+  - rule: "Only ingestion may write to the database"
+    action: write_db
+    allowed_roles: [ingestion]
+    deny_message: "Writing to the database requires ingestion-specialist role."
+
+  - rule: "Only ingestion may access the sandbox subprocess"
+    action: spawn_sandbox
+    allowed_roles: [ingestion]
+    deny_message: "Sandbox execution requires ingestion-specialist role."
+
+  - rule: "Only due diligence may call Gemini for advisory generation"
+    action: generate_advisory
+    allowed_roles: [due_diligence]
+    deny_message: "Advisory generation requires due-diligence role."
+
+  - rule: "Only market analyst may execute SQL queries"
+    action: execute_sql
+    allowed_roles: [market_analyst]
+    deny_message: "SQL execution requires market-analyst role."
+
+  - rule: "Only gateway may see raw user queries before PII stripping"
+    action: access_raw_query
+    allowed_roles: [gateway]
+    deny_message: "Raw user queries are gateway-only."
+
+  - rule: "Cost estimates must include inflation_adjusted_to date"
+    action: produce_estimate
+    required_fields: [inflation_adjusted_to, estimate_low_huf, estimate_mid_huf, estimate_high_huf]
+    deny_message: "Cost estimate is missing required fields."
+
+  - rule: "Responses citing sources must use [FORRÁS n] notation"
+    action: cite_source
+    required_format: "\\[FORRÁS \\d+\\]"
+    deny_message: "Source citation must use [FORRÁS n] format."
+
+  - rule: "Advisory responses must include overall_risk and summary_hu"
+    action: produce_advisory
+    required_fields: [overall_risk, summary_hu, questions_for_seller, inspection_checklist, red_flags]
+    deny_message: "Advisory report is missing required sections."
+
+  - rule: "Expert interviewer may assess building-physics risks"
+    action: assess_risk
+    allowed_roles: [expert_interviewer]
+    required_fields: [building_era, building_type]
+    deny_message: "Risk assessment requires building era and type."
+
+  - rule: "Construction planner must validate phase order"
+    action: generate_sequence
+    allowed_roles: [construction_planner]
+    required_fields: [phases]
+    deny_message: "Construction plan must include validated phase sequence."
+
+semantic_checks:
+  description: >
+    Semantic checks use Gemini to detect PII, policy violations, or unsafe
+    content in tool arguments before execution. These checks run AFTER
+    structural checks pass, as a second line of defense.
+
+  pii_detection_enabled: true
+  pii_categories:
+    - type: address
+      description: "Hungarian postal address with street name"
+      risk: medium
+    - type: phone
+      description: "Hungarian phone number (+36 or 06 prefix)"
+      risk: high
+    - type: email
+      description: "Email address"
+      risk: high
+    - type: personal_name
+      description: "Full personal name"
+      risk: medium
+    - type: tax_id
+      description: "Hungarian tax ID (adószám) or personal ID"
+      risk: critical
+
+  content_safety_enabled: true
+  blocked_categories:
+    - hate_speech
+    - self_harm
+    - illegal_activity
+    - financial_fraud
+
+  semantic_check_timeout_seconds: 5
+
+audit:
+  log_all_checks: true
+  log_level: INFO
+  trace_id_header: X-Trace-ID
+  redact_pii_in_logs: true

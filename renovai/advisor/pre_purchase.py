@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Literal, Tuple, Dict, Any, Callable
 from pydantic import BaseModel
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryError
 
 from ..rag.pipeline import RAGPipeline, RAGResponse
 from ..rag.retriever import Chunk
@@ -38,8 +38,8 @@ class ApartmentProfile(BaseModel):
 class ChecklistItem(BaseModel):
     category: str           # e.g. "Víz és csatorna", "Villanyszerelés"
     item: str               # the specific thing to check / question to ask
-    priority: Literal["kritikus", "fontos", "érdemes_megnézni"]
-    why: str                # one sentence explanation in Hungarian
+    priority: Literal["kritikus", "fontos", "érdemes_megnézni"] = "fontos"
+    why: str = ""           # one sentence explanation in Hungarian
     rag_source: Optional[str] = None # source_file that this came from
 
 class AdvisoryReport(BaseModel):
@@ -112,20 +112,26 @@ def gather_advisory_context(
     return "\n\n".join(context_parts), sorted(list(sources))
 
 @retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=2, min=2, max=30),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=1, max=10),
     retry=retry_if_exception_type(Exception),
-    before_sleep=lambda retry_state: logger.warning(
-        f"Gemini API error in advisor. Retrying in {retry_state.next_action.sleep}s... "
-        f"Attempt {retry_state.attempt_number}/5"
-    )
 )
 def _generate_with_retry(client: genai.Client, model: str, prompt: str, config: types.GenerateContentConfig):
-    return client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=config
-    )
+    try:
+        return client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config
+        )
+    except Exception as e:
+        err = str(e).lower()
+        if "429" in err or "resource_exhausted" in err or "quota" in err:
+            logger.warning("Gemini quota exhausted in advisor. Raising immediately (no retry).")
+            raise
+        if "503" in err or "502" in err:
+            logger.warning(f"Gemini transient error ({err[:60]}...). Retrying...")
+            raise
+        raise
 
 def generate_report(
     profile: ApartmentProfile,
@@ -186,32 +192,44 @@ A végén add meg az eredményt JSON formátumban is, a következő struktúráb
   "inspection": [...],
   "red_flags": [...]
 }}
+
+Every item in all three lists MUST include these exact keys: 'category' (string), 'item' (string), 'priority' (one of: kritikus, fontos, érdemes_megnézni), 'why' (one sentence explanation in Hungarian), 'rag_source' (source filename or null). Missing any key is not acceptable.
 """
     
     gen_config = types.GenerateContentConfig(
         temperature=0.2,
     )
     
-    response = _generate_with_retry(client, model_id, prompt, gen_config)
-    response_text = response.text
-    
-    # Simple JSON extraction
-    json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-    if json_match:
-        try:
-            report_data = json.loads(json_match.group())
-        except json.JSONDecodeError:
-            report_data = {"questions": [], "inspection": [], "red_flags": []}
-    else:
-        report_data = {"questions": [], "inspection": [], "red_flags": []}
+    # 3b. Call Gemini for structured checklist — with graceful fallback on failure
+    try:
+        response = _generate_with_retry(client, model_id, prompt, gen_config)
+        response_text = response.text
         
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if json_match:
+            try:
+                report_data = json.loads(json_match.group())
+            except json.JSONDecodeError:
+                report_data = {"questions": [], "inspection": [], "red_flags": []}
+        else:
+            report_data = {"questions": [], "inspection": [], "red_flags": []}
+            
+        q_items = [ChecklistItem(**it) for it in report_data.get("questions", [])]
+        i_items = [ChecklistItem(**it) for it in report_data.get("inspection", [])]
+        r_items = [ChecklistItem(**it) for it in report_data.get("red_flags", [])]
+    except (RetryError, Exception) as e:
+        logger.error("Gemini call failed in advisor checklist generation: %s", e)
+        report_data = {"questions": [], "inspection": [], "red_flags": []}
+        q_items, i_items, r_items = [], [], []
+        response_text = ""
+
     # 4. Price Prediction
     apt_input = ApartmentInput(
         district=profile.address_district,
         total_area_sqm=profile.floor_area_sqm,
         num_rooms=profile.num_rooms,
-        building_era=None, # Building era is categorical in profile, mapping needed if we want it in predictor
-        needs_plumbing=True, # Conservative default
+        building_era=None,
+        needs_plumbing=True,
         needs_electrical=True,
         needs_flooring=True,
         needs_full_demolition=profile.current_condition == "nagyon_rossz",
@@ -221,22 +239,26 @@ A végén add meg az eredményt JSON formátumban is, a következő struktúráb
     cost_est = predict(feat, price_index, datetime.now().date(), price_predictor_model_dir)
     similar = find_similar_quotes(feat, Path("data/processed/quotes_json/"))
     
-    # 5. Risk and Summary
-    q_items = [ChecklistItem(**it) for it in report_data.get("questions", [])]
-    i_items = [ChecklistItem(**it) for it in report_data.get("inspection", [])]
-    r_items = [ChecklistItem(**it) for it in report_data.get("red_flags", [])]
-    
+    # 5. Risk
     risk = "alacsony"
     if any(it.priority == "kritikus" for it in r_items):
         risk = "magas"
     elif r_items:
         risk = "közepes"
-        
-    # Summary call
-    summary_prompt = f"Készíts egy 3-5 mondatos magyar nyelvű vezetői összefoglalót ehhez a lakásvásárlási tanácsadóhoz: {response_text[:1000]}"
-    summary_resp = _generate_with_retry(client, model_id, summary_prompt, gen_config)
-    summary_hu = summary_resp.text.strip()
-    
+
+    # Summary
+    try:
+        summary_prompt = f"Készíts egy 3-5 mondatos magyar nyelvű vezetői összefoglalót ehhez a lakásvásárlási tanácsadóhoz: {response_text[:1000]}"
+        summary_resp = _generate_with_retry(client, model_id, summary_prompt, gen_config)
+        summary_hu = summary_resp.text.strip()
+    except (RetryError, Exception) as e:
+        logger.error("Gemini summary call failed: %s", e)
+        summary_hu = (
+            "A jelentés generálása közben hiba lépett fel. "
+            "Kérjük ellenőrizze, hogy a GOOGLE_API_KEY érvényes, "
+            "és próbálja újra később."
+        )
+
     return AdvisoryReport(
         apartment_profile=profile,
         generated_at=datetime.now(),

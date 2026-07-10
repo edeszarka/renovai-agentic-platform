@@ -29,6 +29,7 @@ dependencies = [
     "mcp",
     "tenacity",
     "diskcache",
+    "openai>=1.0.0",
     "google-cloud-aiplatform[agent-engines]>=1.148.1",
     "google-adk>=2.1.0",
     "google-cloud-logging>=3.16.0",
@@ -36,6 +37,7 @@ dependencies = [
 
 [project.optional-dependencies]
 adk = ["google-adk"]
+test = ["pytest>=9.0", "pytest-asyncio"]
 
 [build-system]
 requires = ["setuptools", "wheel"]

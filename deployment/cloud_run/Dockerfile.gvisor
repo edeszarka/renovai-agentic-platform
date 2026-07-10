@@ -1,0 +1,23 @@
+# RenovAI 2.0 — gVisor-optimized Runtime Container
+# Uses distroless base for minimal attack surface.
+# Must pass Binary Authorization gate before deployment.
+
+FROM gcr.io/distroless/python3-debian12:nonroot AS runtime
+
+WORKDIR /app
+
+# Copy only the SBOM-verified wheel layers (built in CI pipeline)
+COPY --chown=nonroot:nonroot dist/renovai-*.whl /app/
+COPY --chown=nonroot:nonroot deployment/cloud_run/health.py /app/
+
+# Install the verified wheel
+RUN python -m pip install renovai-*.whl --no-deps --quiet
+
+# No shell, no setuid, no package manager — gVisor compatible
+USER nonroot
+
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8080
+
+CMD ["python", "-m", "uvicorn", "renovai.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]

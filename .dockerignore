@@ -1,0 +1,23 @@
+# RenovAI .dockerignore — exclude from container build context
+.git/
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+data/raw/
+data/processed/
+data/chroma_db/
+data/cache/
+data/feedback/
+data/sbom/
+tests/
+notebooks/
+*.md
+!deployment/**/*.md

@@ -1,0 +1,321 @@
+[
+  {
+    "case_id": "wall_floor_reinforcement_001",
+    "input": {
+      "question_hu": "Mi a különbség egy 1920 előtt épült lakás és egy 1920-1965 között épült lakás esetében a falazás szempontjából, ha előbbiben tégla boltíves acél gerendákkal, utóbbiban betontálcás födém van vasbeton gerendákkal és az új fal gerendák közé esik? Egy 50-60 nm-es lakásra értem, ahol van 10m hosszú építendő fal. Előbbi esetben 3.5m a belmagasság, utóbbi esetben pedig 2.8-3.3m. Építéstechnológia és anyag és munkadíj költség szempontjából? 2 db 0.75x2.1m nagyságú ajtónyílást feltételezve, 10cm vastag ytongból építve.",
+      "params": {
+        "apartment_size_sqm": "50-60",
+        "wall_length_m": 10,
+        "ceiling_height_pre1920_m": 3.5,
+        "ceiling_height_1920_1965_m": "2.8-3.3",
+        "door_openings": "2 x 0.75x2.1m",
+        "wall_material": "10cm YTONG",
+        "pre1920_floor_type": "tégla boltíves acél gerendás födém",
+        "post1920_floor_type": "betontálcás födém vasbeton gerendákkal"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "1920 előtti épületben a gerendák közti födém megerősítést kell csinálni mielőtt a falat felépítik. 1920-1965 között épült házban a beton tálcáról lehet indítani a falat, nem kell külön megerősítés.",
+      "pre1920": {
+        "technology": "Födém megerősítés szükséges a gerendák között, mivel a tégla boltíves acél gerendás födém nem teherhordó a gerendák közötti szakaszon. A 3.5m belmagasság miatt plusz anyag és munka.",
+        "material_cost_huf": 402000,
+        "labor_cost_huf_min": 320000,
+        "labor_cost_huf_max": 420000
+      },
+      "post1920_1965": {
+        "technology": "Beton tálcás födém vasbeton gerendákkal. A beton tálcáról közvetlenül indítható a fal, nincs szükség külön födém megerősítésre. Alacsonyabb belmagasság (2.8-3.3m) miatt kevesebb anyag.",
+        "material_cost_huf": 249000,
+        "labor_cost_huf_min": 280000,
+        "labor_cost_huf_max": 380000
+      },
+      "cost_summary": {
+        "pre1920_total_range_huf": "722000 - 822000",
+        "post1920_total_range_huf": "529000 - 629000",
+        "savings_with_post1920_huf": "193000 - 193000"
+      }
+    },
+    "rubric": [
+      "must_identify_pre1920_needs_floor_reinforcement",
+      "must_identify_post1920_can_start_from_concrete_tray",
+      "must_return_exact_pre1920_material_cost_402000_huf",
+      "must_return_exact_pre1920_labor_range_320000_420000_huf",
+      "must_return_exact_post1920_material_cost_249000_huf",
+      "must_return_exact_post1920_labor_range_280000_380000_huf",
+      "must_mention_10cm_YTONG_as_wall_material",
+      "must_account_for_2_door_openings_in_labor"
+    ]
+  },
+  {
+    "case_id": "sawdust_wallpaper_vs_lime_002",
+    "input": {
+      "question_hu": "Mi a különbség egy olyan lakás esetén, ahol fűrészporos tapétával vannak borítva a falak egy olyanhoz képest, ahol még a 40-60 éves meszes réteg van fent de nincs tapéta? Mi a költségvonzata anyagban és munkadíjban egy 50-60nm-es lakás esetén, ahol 200-300nm glettelendő és festendő falfelület van? Q3 minőségű glettelést feltételezve.",
+      "params": {
+        "apartment_size_sqm": "50-60",
+        "wall_surface_sqm": "200-300",
+        "plastering_quality": "Q3",
+        "condition_sawdust": "fűrészporos tapéta a falakon, rosszabb állapot, korábban a glettelést spórolták ki",
+        "condition_lime": "40-60 éves meszes réteg, nincs tapéta"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Fűrészporos tapétás falak esetén a tapétát le kell kaparni, majd gépi csiszolás, glettelés és festés szükséges. Meszes réteg esetén csak gépi csiszolás, glettelés és festés kell. A fűrészporos tapéta plusz anyag és munkadíj költséget jelent, mivel a korábbi felújításkor a glettelést spórolták ki, így a falak állapota is rosszabb.",
+      "sawdust_wallpaper_extra": {
+        "condition_note": "A fűrészporos tapétázás során a komplett glettelést spórolták ki, így a falak rosszabb állapotban vannak. A tapétát le kell kaparni, utána gépi csiszolás, glettelés, festés.",
+        "extra_material_cost_huf_min": 80000,
+        "extra_material_cost_huf_max": 100000,
+        "extra_labor_cost_huf_min": 180000,
+        "extra_labor_cost_huf_max": 280000,
+        "extra_total_range_huf": "260000 - 380000"
+      },
+      "lime_layer_only": {
+        "condition_note": "40-60 éves meszes réteg, nincs tapéta. Csak gépi csiszolás, majd glettelés és festés szükséges. Nincs plusz költség.",
+        "extra_material_cost_huf": 0,
+        "extra_labor_cost_huf": 0
+      }
+    },
+    "rubric": [
+      "must_identify_sawdust_wallpaper_requires_scraping_before_sanding",
+      "must_identify_lime_layer_requires_only_sanding_no_scraping",
+      "must_return_exact_extra_material_range_80k_100k_huf",
+      "must_return_exact_extra_labor_range_180k_280k_huf",
+      "must_note_Q3_plastering_quality",
+      "must_explain_why_sawdust_walls_are_in_worse_condition",
+      "must_mention_wall_surface_area_200_300_sqm"
+    ]
+  },
+  {
+    "case_id": "subfloor_leveling_slag_vs_compound_003",
+    "input": {
+      "question_hu": "Mi a különbség az alábbi két lakás típus esetében olyan szempontból, hogy egyenes aljzatot kapjunk, amire rá lehet hidegburkolni illetve úgy rátenni a laminált padlót vagy a vinylt, hogy sík legyen alatta? 1. típus: régi parketta és metlaki alatt kohósalak vagy homok van. 2. típus: metlaki és régi parketta alatt vagy parketta ragasztó vagy 1-2cm misung van? 55nm alapterületű lakást feltételezve, 2cm vastagon.",
+      "params": {
+        "apartment_size_sqm": 55,
+        "thickness_cm": 2,
+        "type1_subfloor": "kohósalak vagy homok a régi parketta és metlaki alatt",
+        "type2_subfloor": "parketta ragasztó vagy 1-2cm misung a metlaki és régi parketta alatt"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "1. típus (kohósalak/homok): Ki kell termelni a salakot, metlakit, parkettát, alatta a párnafát és talpfát. Ezután EPS lerakása, majd betonozás. 2. típus (ragasztó/misung): Kitermelés, lecipelés, bontott anyag elvitel, padló felcsiszolása, mélyalapozás, aljzatkiegyenlítő kiöntése.",
+      "type1_slag_sand": {
+        "process": "Kitermelés: salak, metlaki, parketta, párnafa, talpfa eltávolítása. Lecipelés, salak elvitel. Ezt követően EPS lerakása, betonozás.",
+        "material_cost_huf_min": 700000,
+        "material_cost_huf_max": 850000,
+        "labor_cost_huf_min": 1300000,
+        "labor_cost_huf_max": 2000000,
+        "total_range_huf": "2000000 - 2850000"
+      },
+      "type2_adhesive_misung": {
+        "process": "Kitermelés, lecipelés, bontott anyag elvitel. Padló felcsiszolása, mélyalapozás, aljzatkiegyenlítő kiöntése.",
+        "material_cost_huf_min": 650000,
+        "material_cost_huf_max": 750000,
+        "labor_cost_huf_min": 600000,
+        "labor_cost_huf_max": 850000,
+        "total_range_huf": "1250000 - 1600000"
+      },
+      "comparison": {
+        "type1_is_more_expensive_by_huf_min": 750000,
+        "type1_is_more_expensive_by_huf_max": 1250000,
+        "reason": "A salakos aljzat teljes eltávolítása, EPS lerakása és betonozása lényegesen több munkát és anyagot igényel, mint a ragasztós/misungos aljzat felcsiszolása és kiegyenlítése."
+      }
+    },
+    "rubric": [
+      "must_describe_type1_slag_removal_process_with_eps_and_concrete",
+      "must_describe_type2_grinding_and_leveling_compound_process",
+      "must_return_exact_type1_material_range_700k_850k_huf",
+      "must_return_exact_type1_labor_range_1_3m_2m_huf",
+      "must_return_exact_type2_material_range_650k_750k_huf",
+      "must_return_exact_type2_labor_range_600k_850k_huf",
+      "must_identify_55sqm_apartment",
+      "must_explain_why_type1_is_significantly_more_expensive"
+    ]
+  },
+  {
+    "case_id": "tile_size_cost_comparison_004",
+    "input": {
+      "question_hu": "Egy nm-re vetítve körülbelül %-os arányban kifejezve mennyivel emelkedik a burkolás anyag és munkadíja, ha 60x60 / 60x30cm-es lapokkal burkolunk illetve, ha 60x120cm-essel?",
+      "params": {
+        "tile_size_small": "60x30 cm vagy 60x60 cm",
+        "tile_size_large": "60x120 cm"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "60x30 vagy 60x60 cm-es lapok munkadíja 9-12e Ft/nm, anyagköltsége 6-8e Ft/nm. 60x120 cm-es lapok munkadíja 13-16e Ft/nm, anyagköltsége 7-9e Ft/nm. A 60x120-as lapok esetén a munkadíj kb. 33-44%-kal, az anyagköltség kb. 12-17%-kal magasabb.",
+      "tile_60x30_60x60": {
+        "labor_cost_per_sqm_huf_min": 9000,
+        "labor_cost_per_sqm_huf_max": 12000,
+        "material_cost_per_sqm_huf_min": 6000,
+        "material_cost_per_sqm_huf_max": 8000
+      },
+      "tile_60x120": {
+        "labor_cost_per_sqm_huf_min": 13000,
+        "labor_cost_per_sqm_huf_max": 16000,
+        "material_cost_per_sqm_huf_min": 7000,
+        "material_cost_per_sqm_huf_max": 9000
+      },
+      "percentage_difference": {
+        "labor_increase_percent_min": 8,
+        "labor_increase_percent_max": 78,
+        "material_increase_percent_min": -13,
+        "material_increase_percent_max": 50,
+        "typical_labor_increase_percent": "33-44%",
+        "typical_material_increase_percent": "12-17%"
+      }
+    },
+    "rubric": [
+      "must_return_exact_small_tile_labor_range_9k_12k_huf_per_sqm",
+      "must_return_exact_small_tile_material_range_6k_8k_huf_per_sqm",
+      "must_return_exact_large_tile_labor_range_13k_16k_huf_per_sqm",
+      "must_return_exact_large_tile_material_range_7k_9k_huf_per_sqm",
+      "must_calculate_percentage_increase_for_labor",
+      "must_calculate_percentage_increase_for_material",
+      "must_explain_larger_tiles_require_more_precision_and_labor"
+    ]
+  },
+  {
+    "case_id": "cement_vs_dispersion_waterproofing_005",
+    "input": {
+      "question_hu": "Arányaiban anyag árban mekkora a különbség a cementbázisú és a diszperziós vízszigetelés között? Illetve kérlek azt is írd meg, mikor kell mindenképp cementbázisú vízszigetelés? 4nm-es fürdő esetén ahol 15nm szigetelés van egy rétegben, kettő rétegben pedig 30nm. 2.2m magasságban a víznek közvetlen kitett helyeken. 14m hajlaterősítő szalagot feltételezve, mélyalapozva.",
+      "params": {
+        "bathroom_size_sqm": 4,
+        "waterproofing_single_layer_sqm": 15,
+        "waterproofing_double_layer_sqm": 30,
+        "water_exposed_height_m": 2.2,
+        "corner_reinforcement_tape_m": 14,
+        "requires_priming": true
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Cementbázisú vízszigetelés akkor kell, ha épített zuhany van (nagyobb vízterhelés). Zuhanytálca esetén (4 oldalból 2 burkolva, 2 oldal üveg) elég a diszperziós, fürdőkád esetén is elég. Cementbázisú anyagköltség (3-4 zsák): 130-180e Ft. Diszperziós anyagköltség: 70-100e Ft.",
+      "cement_based": {
+        "when_mandatory": "Épített zuhany esetén kell mindenképp, mert itt sokkal nagyobb a vízterhelés.",
+        "bags_needed_min": 3,
+        "bags_needed_max": 4,
+        "material_cost_huf_min": 130000,
+        "material_cost_huf_max": 180000,
+        "notes": "1 komponensű szigetelés. 3 zsák: 130-150e Ft. 4 zsák: 160-180e Ft."
+      },
+      "dispersion_based": {
+        "when_sufficient": "Zuhanytálca esetén (4 oldalból 2 burkolva, 2 oldal üveg) elég. Fürdőkád esetén is elég.",
+        "material_cost_huf_min": 70000,
+        "material_cost_huf_max": 100000
+      },
+      "comparison": {
+        "cement_is_more_expensive_by_huf_min": 30000,
+        "cement_is_more_expensive_by_huf_max": 110000,
+        "cement_is_more_expensive_by_percent_min": 30,
+        "cement_is_more_expensive_by_percent_max": 157
+      }
+    },
+    "rubric": [
+      "must_identify_built_in_shower_requires_cement_waterproofing",
+      "must_identify_shower_tray_or_bathtub_can_use_dispersion",
+      "must_return_exact_cement_material_range_130k_180k_huf",
+      "must_return_exact_dispersion_material_range_70k_100k_huf",
+      "must_specify_3_or_4_bags_for_cement_based",
+      "must_mention_4sqm_bathroom_15sqm_single_30sqm_double_layer",
+      "must_mention_14m_corner_reinforcement_tape"
+    ]
+  },
+  {
+    "case_id": "window_spaletta_restoration_006",
+    "input": {
+      "question_hu": "Mire kell figyelni, ha már korábban volt egy felújítás, de akkor az új műanyag ablakokat csak a régi tokba kell beépíteni, de te most ki szeretnéd bontani a régi tokot is. 1980 előtti téglalakást feltételezek. 1 ablakra lebontva, amely ablak nyílás 1.2m széles és 1.2-1.4m magas és kb. 20-30cm mély. Sitt elszállítás és bontás nélkül, új ablak beépítés / új redőny / új párkány beépítés nélkül, de a párkánynak a betonozása már benne van.",
+      "params": {
+        "building_type": "1980 előtti tégla",
+        "window_opening_width_m": 1.2,
+        "window_opening_height_m": "1.2-1.4",
+        "spaletta_depth_cm": "20-30",
+        "previous_work": "műanyag ablakok a régi tokba építve"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "A régi tok (spaletta) bontása komoly kibomlást eredményez, amelyet utána újra kell javítani. Két megoldás van: olcsóbb verzió oldalt és felül gipszkartonos megoldás, drágább verzió oldalt YTONG-ból, felül hőszigeteléses gipszkarton. Minél kevesebb darab ablak van, annál drágább egy ablak spalettájának helyreállítása.",
+      "gypsum_board_solution": {
+        "description": "Oldalt és felül is gipszkarton. Olcsóbb verzió.",
+        "material_cost_huf_min": 13000,
+        "material_cost_huf_max": 18000,
+        "labor_cost_huf_min": 40000,
+        "labor_cost_huf_max": 65000,
+        "total_range_huf": "53000 - 83000"
+      },
+      "ytong_and_gypsum_solution": {
+        "description": "Oldalt YTONG-ból falazás, felül hőszigeteléses gipszkarton. Drágább, de tartósabb verzió.",
+        "material_cost_huf_min": 17000,
+        "material_cost_huf_max": 21000,
+        "labor_cost_huf_min": 50000,
+        "labor_cost_huf_max": 85000,
+        "total_range_huf": "67000 - 106000"
+      }
+    },
+    "rubric": [
+      "must_explain_old_frame_removal_causes_significant_damage",
+      "must_describe_gypsum_board_solution_with_costs",
+      "must_describe_YTONG_and_gypsum_solution_with_costs",
+      "must_return_exact_gypsum_material_range_13k_18k_huf",
+      "must_return_exact_gypsum_labor_range_40k_65k_huf",
+      "must_return_exact_YTONG_material_range_17k_21k_huf",
+      "must_return_exact_YTONG_labor_range_50k_85k_huf",
+      "must_note_fewer_windows_increases_per_window_cost",
+      "must_specify_window_opening_size_1_2m_x_1_2_1_4m"
+    ]
+  },
+  {
+    "case_id": "wall_debris_weight_estimation_007",
+    "input": {
+      "question_hu": "Falak súlya és a törmelék mennyisége zsákban kifejezve. 3.4-3.7m-es belmagasságot feltételezve, 12cm-es tömör tégla esetén, 1-2cm vastag vakolattal mindkét oldalt. 5-6m falhosszt feltételezve, egy db ajtónyílással. Illetve 2.6-2.9m-es belmagasságot feltételezve, 8-10cm-es lyukacsos válaszfal tégla vagy salakbeton blokk tégla esetén 1-2cm vastag vakolattal mindkét oldalt. 5-6m falhosszt feltételezve, egy db ajtónyílással.",
+      "params": {
+        "type1": {
+          "description": "12cm tömör tégla, magas belmagasság",
+          "ceiling_height_m": "3.4-3.7",
+          "wall_thickness_cm": 12,
+          "wall_material": "tömör tégla",
+          "plaster_thickness_cm": "1-2 both sides",
+          "wall_length_m": "5-6",
+          "door_openings": 1
+        },
+        "type2": {
+          "description": "8-10cm lyukacsos válaszfal tégla vagy salakbeton blokk",
+          "ceiling_height_m": "2.6-2.9",
+          "wall_thickness_cm": "8-10",
+          "wall_material": "lyukacsos válaszfal tégla vagy salakbeton blokk",
+          "plaster_thickness_cm": "1-2 both sides",
+          "wall_length_m": "5-6",
+          "door_openings": 1
+        }
+      }
+    },
+    "expected_output": {
+      "summary_hu": "3.4-3.7m belmagasságú, 12cm tömör tégla fal: 110-150 félig rakott sitteszsák, 3-3.7 tonna. 2.6-2.9m belmagasságú, 8-10cm lyukacsos válaszfal: 70-95 félig rakott sitteszsák, 1.7-2.3 tonna. A tömör tégla fal bontása és elszállítása lényegesen drágább a nagyobb tömeg miatt.",
+      "solid_brick_high_ceiling": {
+        "debris_bags_50pct_filled": "110-150",
+        "weight_tonnes": "3.0-3.7",
+        "demolition_and_bagging_labor_huf_min": 40000,
+        "demolition_and_bagging_labor_huf_max": 70000,
+        "carrying_down_no_lift_1st_floor_huf_min": 30000,
+        "carrying_down_no_lift_1st_floor_huf_max": 50000,
+        "debris_removal_per_bag_huf_min": 45000,
+        "debris_removal_per_bag_huf_max": 70000
+      },
+      "hollow_brick_low_ceiling": {
+        "debris_bags_50pct_filled": "70-95",
+        "weight_tonnes": "1.7-2.3",
+        "demolition_and_bagging_labor_huf_min": 35000,
+        "demolition_and_bagging_labor_huf_max": 60000,
+        "carrying_down_no_lift_1st_floor_huf_min": 25000,
+        "carrying_down_no_lift_1st_floor_huf_max": 45000,
+        "debris_removal_per_bag_huf_min": 35000,
+        "debris_removal_per_bag_huf_max": 45000
+      }
+    },
+    "rubric": [
+      "must_return_exact_solid_brick_bag_count_110_150",
+      "must_return_exact_solid_brick_weight_3_3_7_tonnes",
+      "must_return_exact_hollow_brick_bag_count_70_95",
+      "must_return_exact_hollow_brick_weight_1_7_2_3_tonnes",
+      "must_return_exact_demolition_labor_ranges_for_both_types",
+      "must_return_exact_carrying_down_costs_for_both_types",
+      "must_return_exact_debris_removal_costs_for_both_types",
+      "must_explain_weight_difference_due_to_material_density"
+    ]
+  }
+]

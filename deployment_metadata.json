@@ -1,4 +1,8 @@
 {
-  "remote_agent_runtime_id": "None",
-  "deployment_timestamp": "None"
+  "remote_agent_runtime_id": "projects/83670173168/locations/us-central1/reasoningEngines/6181531886926430208",
+  "deployment_target": "agent_runtime",
+  "is_a2a": false,
+  "deployment_timestamp": "2026-06-22T21:09:00",
+  "operation_name": "projects/83670173168/locations/us-central1/reasoningEngines/6181531886926430208/operations/1238720923817738240",
+  "status": "creating"
 }
