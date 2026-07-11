@@ -112,15 +112,62 @@ def _category_breakdown(quotes: List[Quote]) -> List[Dict[str, Any]]:
     return rows
 
 
+# Cache for monotonicity guard (scope combo -> list of (area_sqm, estimate, warning))
+_monotonicity_cache: Dict[str, list] = {}
+
+
+def _cache_key(apt: ApartmentInput) -> str:
+    return f"p{apt.needs_plumbing}_e{apt.needs_electrical}_f{apt.needs_flooring}_d{apt.needs_full_demolition}"
+
+
+def _check_monotonicity(
+    apt_input: ApartmentInput,
+    estimate_mid: int,
+    price_per_sqm: float,
+) -> Optional[str]:
+    """Defense-in-depth: same-scope estimate must not decrease as area increases.
+
+    Returns a warning string if monotonicity is violated, else None.
+    """
+    key = _cache_key(apt_input)
+    if key not in _monotonicity_cache:
+        _monotonicity_cache[key] = []
+    history = _monotonicity_cache[key]
+
+    # Check all cached entries for this scope combo
+    warning = None
+    for cached_area, cached_est, _ in history:
+        if apt_input.total_area_sqm > cached_area and estimate_mid < cached_est:
+            warning = (
+                "Elégtelen összehasonlítható adat a terület alapú skálázáshoz — "
+                "a nagyobb alapterületű becslés alacsonyabb, mint egy kisebbé. "
+                "Az eredmény fenntartással kezelendő."
+            )
+            break
+        if apt_input.total_area_sqm < cached_area and estimate_mid > cached_est:
+            warning = (
+                "Elégtelen összehasonlítható adat a terület alapú skálázáshoz — "
+                "a kisebb alapterületű becslés magasabb, mint egy nagyobbé. "
+                "Az eredmény fenntartással kezelendő."
+            )
+            break
+
+    _monotonicity_cache[key].append((apt_input.total_area_sqm, estimate_mid, warning))
+    return warning
+
+
 async def scope_matched_estimate(
     apt_input: ApartmentInput,
     session_maker,
     price_index: PriceIndex,
     target_date: date,
 ) -> Optional[dict]:
-    """Estimates renovation cost by summing average per-category costs for selected scopes.
+    """Estimates renovation cost using price-per-m² normalization.
 
-    Uses line-item-level averages from the DB, grouped by scope category_key.
+    For every historical quote, computes scope-level cost per square meter,
+    averages in per-sqm space, then multiplies by the query area.
+    This makes area the dominant cost driver instead of a post-hoc scaling factor.
+
     Returns same dict shape as predict() — estimate_low/mid/high_huf + debug.
     Guarantees: more selected scopes → higher estimate.
     """
@@ -128,7 +175,7 @@ async def scope_matched_estimate(
         logger.error("scope_matched_estimate: no session_maker provided")
         return None
 
-    # 1 — Load all quotes with line items
+    # 1 — Load all quotes with line items (include area_sqm)
     async with session_maker() as session:
         stmt = select(Quote).options(selectinload(Quote.line_items))
         res = await session.execute(stmt)
@@ -143,46 +190,59 @@ async def scope_matched_estimate(
     if num_user_scopes == 0:
         return None
 
-    # 2 — Aggregate line-item costs per scope category across all usable quotes
-    scope_costs: Dict[str, List[int]] = {}
+    # 2 — Aggregate per-quote scope costs, normalized by area
+    # scope_per_sqm[scope_name] = list of per-sqm costs across quotes
+    scope_per_sqm: Dict[str, List[float]] = {}
     for scope_name in SCOPE_NAMES_ORDERED:
-        scope_costs[scope_name] = []
+        scope_per_sqm[scope_name] = []
 
     for q in quotes:
         total = q.grand_total_adjusted_huf or q.grand_total_huf
         if not total:
-            continue  # skip quotes with zero total
-        # Classify each line item into a scope
+            continue
+        area = q.area_sqm or REFERENCE_AREA_SQM
+        if area <= 0:
+            continue
+        # Group line items by scope for this quote
+        scope_line_total: Dict[str, int] = {}
         for li in q.line_items:
             if not li.total_cost_huf:
                 continue
             for scope_name, info in SCOPE_CATEGORY_MAP.items():
                 if li.category_key in info["keys"]:
-                    scope_costs[scope_name].append(li.total_cost_huf)
+                    scope_line_total[scope_name] = (
+                        scope_line_total.get(scope_name, 0) + li.total_cost_huf
+                    )
                     break
+        # Normalize each scope cost by this quote's area
+        for scope_name, cost_total in scope_line_total.items():
+            scope_per_sqm[scope_name].append(cost_total / area)
 
-    # 3 — Average cost per scope, plus a "base" (min expected cost / contingency)
-    scope_avg: Dict[str, int] = {}
+    # 3 — Average per-sqm cost per scope, fall back to min_premium / REFERENCE_AREA_SQM
+    scope_avg_per_sqm: Dict[str, float] = {}
     scope_count: Dict[str, int] = {}
     for scope_name in SCOPE_NAMES_ORDERED:
-        vals = scope_costs[scope_name]
+        vals = scope_per_sqm[scope_name]
         scope_count[scope_name] = len(vals)
         if len(vals) >= 2:
-            scope_avg[scope_name] = int(round(np.mean(vals)))
+            scope_avg_per_sqm[scope_name] = float(np.mean(vals))
         else:
-            scope_avg[scope_name] = SCOPE_CATEGORY_MAP[scope_name]["min_premium"]
+            # Fallback: convert min_premium to per-sqm at reference area
+            scope_avg_per_sqm[scope_name] = (
+                SCOPE_CATEGORY_MAP[scope_name]["min_premium"] / REFERENCE_AREA_SQM
+            )
 
-    # 4 — Total estimate = base contingency + sum of selected scope averages
-    CONTINGENCY = 200_000  # base cost (scaffolding, permits, etc.)
-    scope_total = sum(scope_avg[s] for s in user_scopes)
-    estimate_mid = CONTINGENCY + scope_total
-
-    # 5 — Area adjustment (linear scaling)
-    area_factor = apt_input.total_area_sqm / REFERENCE_AREA_SQM
-    estimate_mid = int(estimate_mid * area_factor)
+    # 4 — Estimate = fixed contingency + sum(scope_per_sqm * query_area)
+    CONTINGENCY = 200_000  # fixed costs (permits, scaffolding, etc.)
+    query_area = apt_input.total_area_sqm
+    scope_total_per_sqm = sum(scope_avg_per_sqm[s] for s in user_scopes)
+    estimate_mid = int(CONTINGENCY + scope_total_per_sqm * query_area)
     estimate_mid = max(estimate_mid, 500_000)
 
-    # 6 — Inflation adjustment
+    # 4b — Monotonicity guard
+    monotonicity_warning = _check_monotonicity(apt_input, estimate_mid, scope_total_per_sqm)
+
+    # 5 — Inflation adjustment
     baseline_date = date(2024, 2, 15)
     f_labor = get_factor(price_index, "labor", baseline_date, target_date)
     f_material = get_factor(price_index, "materials", baseline_date, target_date)
@@ -192,26 +252,28 @@ async def scope_matched_estimate(
     l_base = estimate_mid * labor_share
     estimate_adj = int((l_base * f_labor) + (m_base * f_material))
 
-    # 7 — Return predict()-compatible dict
-    return {
+    # 6 — Return predict()-compatible dict
+    result = {
         "estimate_low_huf": int(estimate_adj * 0.85),
         "estimate_mid_huf": estimate_adj,
         "estimate_high_huf": int(estimate_adj * 1.20),
         "inflation_adjusted_to": target_date.isoformat(),
         "inflation_factor_labor": round(f_labor, 3),
         "inflation_factor_materials": round(f_material, 3),
-        "model_used": "scope_matched",
-        "warning": None,
+        "model_used": "scope_matched_per_sqm",
+        "warning": monotonicity_warning,
         "debug": {
             "num_queries_in_db": len(quotes),
             "num_user_scopes": num_user_scopes,
             "contingency_huf": CONTINGENCY,
-            "area_factor": round(area_factor, 2),
-            "scope_avg_cost_huf": scope_avg,
+            "query_area_sqm": query_area,
+            "scope_avg_per_sqm_huf": {k: round(v, 0) for k, v in scope_avg_per_sqm.items()},
             "scope_line_item_count": scope_count,
-            "scope_total_avg_huf": scope_total,
+            "scope_total_per_sqm_huf": round(scope_total_per_sqm, 0),
+            "price_per_sqm_huf": round((CONTINGENCY + scope_total_per_sqm * query_area) / query_area, 0) if query_area > 0 else 0,
         },
     }
+    return result
 
 
 def find_similar_quotes(

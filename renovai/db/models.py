@@ -25,6 +25,11 @@ class Quote(Base):
     timeline_weeks_max: Mapped[Optional[int]]
     payment_schedule: Mapped[Optional[str]]
     has_slag_complication: Mapped[bool] = mapped_column(default=False)
+    area_sqm: Mapped[Optional[float]]
+    ceiling_height: Mapped[Optional[float]]
+    elevator_type: Mapped[Optional[str]]
+    has_gas_heating: Mapped[Optional[bool]]
+    floor_number: Mapped[Optional[int]]
     num_line_items: Mapped[int]
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
 
@@ -129,15 +134,21 @@ class Listing(Base):
     url: Mapped[str]
 
 SEED_WORK_CATEGORIES = [
-    ("bontás",            "Bontás",               "Demolition",       "labor"),
-    ("víz_fűtés",         "Víz és fűtés",          "Plumbing/heating", "mixed"),
-    ("villany",           "Villanyszerelés",        "Electrical",       "labor"),
-    ("klíma",             "Klíma",                  "AC",               "labor"),
-    ("vakolás",           "Vakolás",                "Plastering",       "mixed"),
-    ("burkolás",          "Burkolás",               "Tiling",           "mixed"),
-    ("glettelés_festés",  "Glettelés és festés",    "Painting",         "mixed"),
-    ("parketta",          "Parketta",               "Flooring",         "labor"),
-    ("egyéb_köműves",     "Egyéb köműves",          "Misc masonry",     "mixed"),
-    ("szállítás",         "Szállítás/segédmunka",   "Logistics",        "labor"),
-    ("egyéb",             "Egyéb",                  "Other",            "mixed"),
+    ("bontás",            "Bontás",                 "Demolition",             "labor"),
+    ("víz_fűtés",         "Víz és fűtés",           "Plumbing/heating",       "mixed"),
+    ("villany",           "Villanyszerelés",        "Electrical",             "labor"),
+    ("klíma",             "Klíma",                  "AC",                     "labor"),
+    ("vakolás",           "Vakolás",                "Plastering",             "mixed"),
+    ("burkolás",          "Burkolás",               "Tiling",                 "mixed"),
+    ("glettelés_festés",  "Glettelés és festés",    "Painting",               "mixed"),
+    ("parketta",          "Parketta",               "Flooring",               "labor"),
+    ("egyéb_köműves",     "Egyéb köműves",          "Misc masonry",           "mixed"),
+    ("szállítás",         "Szállítás/segédmunka",   "Logistics",              "labor"),
+    ("szigetelés",        "Szigetelés",             "Insulation",             "mixed"),
+    ("nyílászáró",        "Nyílászáró csere",       "Windows/doors",          "mixed"),
+    ("konyha",            "Konyhabútor",            "Kitchen cabinetry",      "mixed"),
+    ("fürdő",             "Fürdőszoba",             "Bathroom",               "mixed"),
+    ("fűtés_rendszer",    "Fűtésrendszer",          "Heating system",         "mixed"),
+    ("gipszkarton",       "Gipszkarton/álmennyezet", "Drywall/suspended ceil.", "mixed"),
+    ("egyéb",             "Egyéb",                  "Other",                  "mixed"),
 ]

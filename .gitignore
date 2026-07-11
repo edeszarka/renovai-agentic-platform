@@ -57,3 +57,8 @@ Thumbs.db
 # Secrets / keys
 priv
 priv.pub
+
+
+# docs
+docs/TECHNICAL_SUMMARY_2.md
+docs/TECHNICAL_SUMMARY.md

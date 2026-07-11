@@ -15,7 +15,13 @@ WORK_CATEGORIES = {
     "glettelés_festés": "painting_plastering",
     "parketta": "flooring",
     "egyéb_köműves": "misc_masonry",
-    "szállítás_segédmunka": "logistics"
+    "szállítás_segédmunka": "logistics",
+    "szigetelés": "insulation",
+    "nyílászáró": "windows_doors",
+    "konyha": "kitchen",
+    "fürdő": "bathroom",
+    "fűtés_rendszer": "heating",
+    "gipszkarton": "drywall",
 }
 
 CATEGORY_KEYWORDS = {
@@ -27,7 +33,13 @@ CATEGORY_KEYWORDS = {
     "painting_plastering": ["glettelés", "festés", "mázolás", "tapétázás", "alapozás"],
     "flooring": ["parketta", "szegély", "alátét", "csiszolás", "lakkozás", "padló", "laminált"],
     "misc_masonry": ["kőműves", "gipszkarton", "profil", "fal", "áthelyezés"],
-    "logistics": ["szállítás", "cipelés", "anyagmozgatás", "segédmunka", "rakodás"]
+    "logistics": ["szállítás", "cipelés", "anyagmozgatás", "segédmunka", "rakodás"],
+    "insulation": ["szigetelés", "hungarocell", "EPS", "ásványgyapot", "rockwool", "hőszigetelés", "hangszigetelés"],
+    "windows_doors": ["nyílászáró", "ablak", "ajtó", "tok", "spaletta", "redőny", "kilincs"],
+    "kitchen": ["konyha", "konyhabútor", "szekrény", "munkalap", "mosogató", "csaptelep", "konyhaszekrény"],
+    "bathroom": ["fürdő", "fürdőszoba", "wc", "kád", "zuhany", "tálca", "mosdó"],
+    "heating": ["fűtésrendszer", "kazán", "kombi", "cirkó", "konvektor", "radiátor", "padlófűtés", "hőszivattyú", "gázkészülék"],
+    "drywall": ["gipszkarton", "álmennyezet", "álmennyezet", "akusztikai", "cd profil", "vázszerkezet"],
 }
 
 class QuoteFeatures(BaseModel):

@@ -1,0 +1,206 @@
+import pytest
+from renovai.predictor.structural_cost import (
+    ceiling_height_multiplier,
+    apply_height_surcharge,
+    detect_active_chains,
+    chain_total_cost,
+    apply_infrastructure_minimums,
+    compute_logistics_surcharge,
+    elevator_surcharge,
+    chimney_technician_cost,
+    CHAIN_RULES,
+    ELECTRICAL_STANDARDIZATION_MINIMUM,
+    GAS_HEATING_INFRA_MINIMUM,
+)
+
+
+class TestCeilingHeightMultiplier:
+    def test_default_height(self):
+        assert ceiling_height_multiplier(2.75) == 2.75
+
+    def test_low_range(self):
+        assert ceiling_height_multiplier(2.5) == 2.5
+        assert ceiling_height_multiplier(2.3) == 2.5
+
+    def test_standard_range(self):
+        assert ceiling_height_multiplier(2.8) == 2.75
+        assert ceiling_height_multiplier(3.0) == 2.75
+
+    def test_intermediate_range(self):
+        assert ceiling_height_multiplier(3.2) == 3.0
+
+    def test_high_range(self):
+        assert ceiling_height_multiplier(3.5) == 3.5
+        assert ceiling_height_multiplier(3.8) == 3.5
+        assert ceiling_height_multiplier(4.0) == 3.5
+
+    def test_extreme_height(self):
+        assert ceiling_height_multiplier(4.5) == 4.0
+        assert ceiling_height_multiplier(5.0) == 4.0
+
+    def test_zero_or_negative(self):
+        assert ceiling_height_multiplier(0) == 1.0
+        assert ceiling_height_multiplier(-1) == 1.0
+
+
+class TestApplyHeightSurcharge:
+    def test_standard_height_no_surcharge(self):
+        adj, surcharge = apply_height_surcharge(2.75, 55, 200000)
+        assert adj == 200000
+        assert surcharge == 0.0
+
+    def test_high_height_surcharge_applied(self):
+        adj, surcharge = apply_height_surcharge(3.5, 55, 200000)
+        # multiplier = 3.5, ref_mult = 2.75, ratio = 3.5/2.75 ≈ 1.2727
+        expected_adj = int(200000 * (3.5 / 2.75))
+        assert abs(adj - expected_adj) < 1
+        assert surcharge > 0
+
+    def test_extreme_height_surcharge(self):
+        adj, surcharge = apply_height_surcharge(4.5, 55, 200000)
+        # multiplier = 4.0, ref_mult = 2.75, ratio = 4.0/2.75 ≈ 1.4545
+        expected_adj = int(200000 * (4.0 / 2.75))
+        assert abs(adj - expected_adj) < 1
+
+    def test_none_height_defaults(self):
+        adj, surcharge = apply_height_surcharge(None, 55, 200000)
+        assert adj == 200000
+        assert surcharge == 0.0
+
+
+class TestChainDetection:
+    def test_pre_1970_with_door_scope_triggers_chain(self):
+        scope = {"windows_doors": True, "flooring": False}
+        chains = detect_active_chains(scope, "1965")
+        assert len(chains) == 1
+        assert chains[0]["id"] == "ajto_padlo_lanc"
+
+    def test_pre_1970_with_floor_scope_triggers_chain(self):
+        scope = {"windows_doors": False, "flooring": True}
+        chains = detect_active_chains(scope, "1950")
+        assert len(chains) == 1
+        assert chains[0]["id"] == "ajto_padlo_lanc"
+
+    def test_post_1970_does_not_trigger_chain(self):
+        scope = {"windows_doors": True, "flooring": True}
+        chains = detect_active_chains(scope, "1985")
+        assert len(chains) == 0
+
+    def test_no_matching_scope_no_chain(self):
+        scope = {"demolition": True, "plumbing": True}
+        chains = detect_active_chains(scope, "1950")
+        assert len(chains) == 0
+
+    def test_none_building_era_no_chain(self):
+        scope = {"windows_doors": True, "flooring": True}
+        chains = detect_active_chains(scope, None)
+        assert len(chains) == 0
+
+    def test_chain_cost_range(self):
+        chains = detect_active_chains({"windows_doors": True}, "1950")
+        costs = chain_total_cost(chains)
+        assert costs["low"] == 2_500_000
+        assert costs["high"] == 3_000_000
+        assert costs["point"] == 2_750_000
+
+    def test_chain_rule_structure(self):
+        assert len(CHAIN_RULES) == 1
+        rule = CHAIN_RULES[0]
+        assert "trigger" in rule
+        assert "steps" in rule
+        assert "cost_low" in rule
+        assert "cost_high" in rule
+        assert "cost_point" in rule
+
+
+class TestInfrastructureMinimums:
+    def test_no_override_when_estimate_above_minimum(self):
+        low, mid, high = 5_000_000, 5_500_000, 6_000_000
+        result_low, result_mid, result_high, logs = apply_infrastructure_minimums(
+            low, mid, high, is_full_renovation=True, has_gas_heating=True,
+        )
+        # Both shares above minimums: elec = 660k > 300k, heating = 1.1M > 800k
+        assert result_mid == mid
+        assert len(logs) == 0
+
+    def test_partial_renovation_no_mins(self):
+        low, mid, high = 1_000_000, 1_200_000, 1_500_000
+        result_low, result_mid, result_high, logs = apply_infrastructure_minimums(
+            low, mid, high, is_full_renovation=False, has_gas_heating=True,
+        )
+        assert result_mid == mid
+        assert len(logs) == 0
+
+    def test_estimate_way_below_electrical_minimum(self):
+        low, mid, high = 1_000_000, 1_200_000, 1_500_000
+        result_low, result_mid, result_high, logs = apply_infrastructure_minimums(
+            low, mid, high, is_full_renovation=True, has_gas_heating=False,
+        )
+        # Electrical: 12% of 1.2M = 144k < 300k → override
+        expected_elec_override = ELECTRICAL_STANDARDIZATION_MINIMUM - int(1_200_000 * 0.12)
+        assert result_mid == mid + expected_elec_override
+        assert any("Electrical min override" in log for log in logs)
+
+    def test_gas_minimum_added_when_gas_heating(self):
+        low, mid, high = 2_000_000, 2_500_000, 3_000_000
+        result_low, result_mid, result_high, logs = apply_infrastructure_minimums(
+            low, mid, high, is_full_renovation=True, has_gas_heating=True,
+        )
+        has_gas_log = any("Gas/heating min override" in log for log in logs)
+        # Heating share: 20% of 2.5M = 500k < 800k → override
+        has_elec_log = any("Electrical min override" in log for log in logs)
+        # Electrical share: 12% of 2.5M = 300k → equals minimum → no override
+        assert has_gas_log
+        assert not has_elec_log
+
+
+class TestLogisticsSurcharge:
+    def test_standard_15_percent(self):
+        surcharge = compute_logistics_surcharge(1_000_000)
+        assert surcharge == 150_000
+
+    def test_zero_labor(self):
+        surcharge = compute_logistics_surcharge(0)
+        assert surcharge == 0.0
+
+
+class TestElevatorSurcharge:
+    def test_no_elevator_on_high_floor(self):
+        result = elevator_surcharge("none", 5)
+        assert result > 0
+        assert result == 4 * 50_000  # 4 floors above ground × 50k
+
+    def test_no_elevator_ground_floor(self):
+        result = elevator_surcharge("none", 1)
+        assert result == 0  # ground floor, no surcharge
+
+    def test_small_elevator_no_surcharge(self):
+        result = elevator_surcharge("small", 5)
+        assert result == 0
+
+    def test_large_elevator_no_surcharge(self):
+        result = elevator_surcharge("large", 5)
+        assert result == 0
+
+    def test_unknown_elevator_no_surcharge(self):
+        result = elevator_surcharge(None, 3)
+        assert result == 0
+
+    def test_none_floor_default(self):
+        result = elevator_surcharge("none", None)
+        # floor_number = None → treated as 1 → only 0 floors above ground
+        assert result == 0
+
+
+class TestChimneyTechnician:
+    def test_ground_floor(self):
+        cost = chimney_technician_cost(1)
+        assert cost == 80_000
+
+    def test_third_floor(self):
+        cost = chimney_technician_cost(3)
+        assert cost == 80_000 + 2 * 20_000  # 120k
+
+    def test_no_floor_number_defaults_to_one(self):
+        cost = chimney_technician_cost(None)
+        assert cost == 80_000  # defaults to floor 1

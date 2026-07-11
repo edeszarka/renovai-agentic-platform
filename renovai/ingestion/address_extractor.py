@@ -11,11 +11,13 @@ ADDRESS_REGEX = re.compile(
 )
 
 def postal_to_district(postal: int) -> Optional[int]:
-    """Budapest districts: postal code = 1XYZ where X is the district."""
+    """Budapest districts: postal code = 1XY Z where XY is the district (1-23)."""
     s = str(postal)
     if len(s) == 4 and s.startswith("1"):
         try:
-            return int(s[1:3])
+            d = int(s[1:3])
+            if 1 <= d <= 23:
+                return d
         except (ValueError, IndexError):
             return None
     return None

@@ -123,6 +123,19 @@ LANG = {
         "tab2.spinner": "Felújítási terv összeállítása...",
         "tab2.error": "Hiba történt a terv generálása során.",
         "tab2.why_title": "💡 Költségindoklás (Vibe Diff)",
+        "tab2.advanced_header": "💡 Részletes beállítások",
+        "tab2.advanced_caption": "Extra paraméterek a pontosabb költségbecsléshez",
+        "tab2.ceiling_height": "Belmagasság (m)",
+        "tab2.ceiling_height_help": "Alapértelmezett: 2.75 m. 3.2 m felett a festés/vakolás munkadíj nő.",
+        "tab2.floor_number": "Emelet",
+        "tab2.floor_number_help": "Hányadik emeleten van a lakás (lift nélkül többletköltség)",
+        "tab2.elevator": "Lift típusa",
+        "tab2.elevator_unknown": "Nem ismert",
+        "tab2.elevator_none": "Nincs lift",
+        "tab2.elevator_small": "Van lift (<240 kg, személylift)",
+        "tab2.elevator_large": "Van lift (≥240 kg, teherlift)",
+        "tab2.gas_heating": "Egyedi gázfűtés (cirkó/gázkazán)",
+        "tab2.gas_heating_help": "Gázfűtés esetén kötelező kéménytechnikai szakember bevonása",
         "priority.kritikus": "kritikus",
         "priority.fontos": "fontos",
         "priority.erdemes": "érdemes_megnézni",
@@ -229,6 +242,19 @@ LANG = {
         "tab2.spinner": "Compiling renovation plan...",
         "tab2.error": "An error occurred during plan generation.",
         "tab2.why_title": "💡 Cost Explanation (Vibe Diff)",
+        "tab2.advanced_header": "💡 Advanced Settings",
+        "tab2.advanced_caption": "Extra parameters for more accurate cost estimation",
+        "tab2.ceiling_height": "Ceiling Height (m)",
+        "tab2.ceiling_height_help": "Default: 2.75 m. Above 3.2 m, painting/plastering labor costs increase.",
+        "tab2.floor_number": "Floor",
+        "tab2.floor_number_help": "Which floor is the apartment on (no elevator adds surcharge)",
+        "tab2.elevator": "Elevator Type",
+        "tab2.elevator_unknown": "Unknown",
+        "tab2.elevator_none": "No elevator",
+        "tab2.elevator_small": "Has elevator (<240 kg, passenger)",
+        "tab2.elevator_large": "Has elevator (≥240 kg, freight)",
+        "tab2.gas_heating": "Individual gas heating (circulator/boiler)",
+        "tab2.gas_heating_help": "Gas heating requires a chimney technician specialist",
         "priority.kritikus": "critical",
         "priority.fontos": "important",
         "priority.erdemes": "worth checking",
@@ -665,40 +691,96 @@ elif tab_selection == _("nav.tab2"):
             format_func=wall_fmt_t2.get,
         )
 
+        st.markdown("---")
+        st.markdown(f"**{_('tab2.advanced_header')}**")
+        st.caption(_("tab2.advanced_caption"))
+        adv_cols = st.columns(2)
+        with adv_cols[0]:
+            ceiling_height = st.number_input(
+                _("tab2.ceiling_height"),
+                min_value=2.0, max_value=6.0, value=2.75, step=0.05,
+                format="%.2f",
+                help=_("tab2.ceiling_height_help"),
+            )
+        with adv_cols[1]:
+            floor_number = st.number_input(
+                _("tab2.floor_number"),
+                min_value=1, max_value=50, value=1,
+                help=_("tab2.floor_number_help"),
+            )
+
+        elevator_opts = ["unknown", "none", "small", "large"]
+        elevator_fmt = {
+            "unknown": _("tab2.elevator_unknown"),
+            "none": _("tab2.elevator_none"),
+            "small": _("tab2.elevator_small"),
+            "large": _("tab2.elevator_large"),
+        }
+        elevator_type = st.selectbox(
+            _("tab2.elevator"),
+            options=elevator_opts,
+            format_func=elevator_fmt.get,
+        )
+
+        gas_heating = st.checkbox(
+            _("tab2.gas_heating"),
+            value=False,
+            help=_("tab2.gas_heating_help"),
+        )
+
         partial_scope = {}
         if renovation_scope == "partial":
-            st.subheader("Munkafázisok kiválasztása" if st.session_state.get("lang", "HU") == "HU" else "Select Work Phases")
-            scope_cols = st.columns(2)
+            scope_header = "Munkafázisok kiválasztása" if st.session_state.get("lang", "HU") == "HU" else "Select Work Phases"
+            st.subheader(scope_header)
+            st.caption("Jelöld be a tervezett munkafázisokat" if st.session_state.get("lang", "HU") == "HU" else "Select the planned work phases")
+
+            # Grouped by work type category
+            t = lambda hu, en: hu if st.session_state.get("lang", "HU") == "HU" else en
+
+            st.markdown(f"**{t('Szerkezeti munkák', 'Structural Work')}**")
+            scope_cols = st.columns(3)
             with scope_cols[0]:
-                partial_scope["demolition"] = st.checkbox(
-                    _("tab2.scope_full") if st.session_state.get("lang", "HU") == "EN" else "Bontás",
-                    value=True,
-                )
-                partial_scope["masonry"] = st.checkbox(
-                    "Kőműves" if st.session_state.get("lang", "HU") == "HU" else "Masonry",
-                    value=True,
-                )
-                partial_scope["plumbing"] = st.checkbox(
-                    "Víz és fűtés" if st.session_state.get("lang", "HU") == "HU" else "Plumbing",
-                    value=False,
-                )
+                partial_scope["demolition"] = st.checkbox(t("Bontás", "Demolition"), value=True)
             with scope_cols[1]:
-                partial_scope["electrical"] = st.checkbox(
-                    "Villanyszerelés" if st.session_state.get("lang", "HU") == "HU" else "Electrical",
-                    value=False,
-                )
-                partial_scope["plastering"] = st.checkbox(
-                    "Vakolás" if st.session_state.get("lang", "HU") == "HU" else "Plastering",
-                    value=True,
-                )
-                partial_scope["flooring"] = st.checkbox(
-                    "Burkolás" if st.session_state.get("lang", "HU") == "HU" else "Flooring",
-                    value=True,
-                )
-                partial_scope["painting"] = st.checkbox(
-                    "Festés" if st.session_state.get("lang", "HU") == "HU" else "Painting",
-                    value=True,
-                )
+                partial_scope["masonry"] = st.checkbox(t("Kőműves falazás", "Masonry"), value=True)
+            with scope_cols[2]:
+                partial_scope["drywall"] = st.checkbox(t("Gipszkarton/álmennyezet", "Drywall/ceiling"), value=False)
+
+            st.markdown(f"**{t('Gépészet', 'Mechanical (MEP)')}**")
+            scope_cols = st.columns(3)
+            with scope_cols[0]:
+                partial_scope["plumbing"] = st.checkbox(t("Víz és fűtés", "Plumbing"), value=False)
+            with scope_cols[1]:
+                partial_scope["electrical"] = st.checkbox(t("Villanyszerelés", "Electrical"), value=False)
+            with scope_cols[2]:
+                partial_scope["heating"] = st.checkbox(t("Fűtésrendszer", "Heating system"), value=False)
+
+            st.markdown(f"**{t('Felületek', 'Surfaces')}**")
+            scope_cols = st.columns(3)
+            with scope_cols[0]:
+                partial_scope["plastering"] = st.checkbox(t("Vakolás/glettelés", "Plastering"), value=True)
+            with scope_cols[1]:
+                partial_scope["flooring"] = st.checkbox(t("Burkolás", "Flooring/tiling"), value=True)
+            with scope_cols[2]:
+                partial_scope["painting"] = st.checkbox(t("Festés", "Painting"), value=True)
+
+            st.markdown(f"**{t('Szigetelés és nyílászáró', 'Insulation & Openings')}**")
+            scope_cols = st.columns(3)
+            with scope_cols[0]:
+                partial_scope["insulation"] = st.checkbox(t("Szigetelés", "Insulation"), value=False)
+            with scope_cols[1]:
+                partial_scope["windows_doors"] = st.checkbox(t("Nyílászáró csere", "Windows/doors"), value=False)
+            with scope_cols[2]:
+                partial_scope["ac"] = st.checkbox(t("Klíma", "AC"), value=False)
+
+            st.markdown(f"**{t('Helyiségek', 'Rooms')}**")
+            scope_cols = st.columns(3)
+            with scope_cols[0]:
+                partial_scope["kitchen"] = st.checkbox(t("Konyhabútor", "Kitchen cabinetry"), value=False)
+            with scope_cols[1]:
+                partial_scope["bathroom"] = st.checkbox(t("Fürdőszoba", "Bathroom"), value=False)
+            with scope_cols[2]:
+                partial_scope["built_in_shower"] = st.checkbox(t("Épített zuhany", "Built-in shower"), value=False)
 
         run_plan = st.button(
             _("tab2.button"), type="primary", use_container_width=True
@@ -755,6 +837,10 @@ elif tab_selection == _("nav.tab2"):
                         "scope_flags": scope_flags,
                         "renovation_scope": renovation_scope,
                         "want_sequence": True,
+                        "ceiling_height": ceiling_height,
+                        "elevator_type": elevator_type if elevator_type != "unknown" else None,
+                        "gas_heating": gas_heating,
+                        "floor_number": floor_number,
                     }
 
                     from orchestrator.handlers import handle_construction_planning

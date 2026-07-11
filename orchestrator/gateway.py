@@ -171,7 +171,7 @@ Extract any parameters you can identify from the question:
 - building_era: string or null (e.g. "1920 előtt", "1920-1965", "1965-1990", "1990 után")
 - floor_construction: "acél gerendás", "betontálcás", or null
 - wall_condition: object with "wallpaper": bool if fűrészporos tapéta mentioned
-- scope_flags: object with boolean flags for plumbing, electrical, flooring, demolition, slag, built_in_shower
+- scope_flags: object with boolean flags for plumbing, electrical, heating, flooring, demolition, slag, built_in_shower, ac, insulation, windows_doors, kitchen, bathroom, drywall
 - renovation_scope: "full" or "partial" if mentioned
 
 Respond with JSON only. No markdown, no explanation. All parameters in Hungarian terms."""
@@ -363,6 +363,40 @@ class Gateway:
         if era_match:
             params["building_era"] = era_match.group(1)
 
+        # Ceiling height (belmagasság)
+        height_match = re.search(r'(\d+[.,]\d+)\s*m(é|e)ter\s*belmagasság', question_hu)
+        if not height_match:
+            height_match = re.search(r'(\d+[.,]\d+)\s*m\s*(magas|belmagasság)', question_hu)
+        if not height_match:
+            height_match = re.search(r'magas\s*mennyezet', question_hu)
+            if height_match:
+                params["ceiling_height"] = 3.5
+        if height_match and "ceiling_height" not in params:
+            try:
+                params["ceiling_height"] = float(height_match.group(1).replace(",", "."))
+            except (ValueError, IndexError):
+                pass
+
+        # Elevator (lift)
+        if any(kw in question_hu.lower() for kw in ["nincs lift", "lift nélkül", "lift nincs"]):
+            params["elevator_type"] = "none"
+        elif any(kw in question_hu.lower() for kw in ["240 kg", "teherlift", "nagy lift"]):
+            params["elevator_type"] = "large"
+        elif "lift" in question_hu.lower():
+            params["elevator_type"] = "small"
+
+        # Individual gas heating (egyedi gázfűtés)
+        if any(kw in question_hu.lower() for kw in ["gázfűtés", "gázkazán", "cirkó", "egyedi gáz"]):
+            params["gas_heating"] = True
+
+        # Floor number (emeletszám)
+        floor_match = re.search(r'(\d+)\.\s*emelet', question_hu)
+        if floor_match:
+            try:
+                params["floor_number"] = int(floor_match.group(1))
+            except ValueError:
+                pass
+
         # Condition keywords
         if any(kw in question_hu.lower() for kw in ["fűrészporos tapéta", "tapéta", "rossz állapot"]):
             params.setdefault("wall_condition", {})["wallpaper"] = True
@@ -385,12 +419,26 @@ class Gateway:
             scope_flags["electrical"] = True
         if any(kw in question_hu.lower() for kw in ["víz", "vízvezeték", "plumbing"]):
             scope_flags["plumbing"] = True
-        if any(kw in question_hu.lower() for kw in ["burkol", "járólap", "csempe"]):
+        if any(kw in question_hu.lower() for kw in ["fűtés", "fűtésrendszer", "kazán", "radiátor", "cirkó", "padlófűtés"]):
+            scope_flags["heating"] = True
+        if any(kw in question_hu.lower() for kw in ["burkol", "járólap", "csempe", "parketta", "laminált"]):
             scope_flags["flooring"] = True
         if any(kw in question_hu.lower() for kw in ["bontás", "bont"]):
             scope_flags["demolition"] = True
         if any(kw in question_hu.lower() for kw in ["salak", "kohósalak"]):
             scope_flags["slag"] = True
+        if any(kw in question_hu.lower() for kw in ["klíma", "légkondi", "légkondícionáló"]):
+            scope_flags["ac"] = True
+        if any(kw in question_hu.lower() for kw in ["szigetelés", "hőszigetelés", "hangszigetelés"]):
+            scope_flags["insulation"] = True
+        if any(kw in question_hu.lower() for kw in ["ablak", "ajtó", "nyílászáró", "tok"]):
+            scope_flags["windows_doors"] = True
+        if any(kw in question_hu.lower() for kw in ["konyha", "konyhabútor"]):
+            scope_flags["kitchen"] = True
+        if any(kw in question_hu.lower() for kw in ["fürdő", "fürdőszoba", "zuhany"]):
+            scope_flags["bathroom"] = True
+        if any(kw in question_hu.lower() for kw in ["gipszkarton", "álmennyezet"]):
+            scope_flags["drywall"] = True
         if scope_flags:
             params["scope_flags"] = scope_flags
 

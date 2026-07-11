@@ -72,3 +72,52 @@ Feature: Construction Planner — Technical Sequencing & Cost Logic (Tab 2)
     When the Construction Planner generates the sequence
     Then only the selected phases MUST be included
     And omitted phases MUST NOT appear in the cost total
+
+  Scenario: Drywall installation appears after masonry but before rough-in
+    Given a buyer includes drywall (gipszkarton) in their renovation scope
+    When the Construction Planner generates the sequence
+    Then "Gipszkarton és álmennyezet" MUST appear after masonry and before MEP rough-in
+    And the material cost MUST use 5 000 - 6 200 Ft/m² range
+    And the labor cost MUST use 9 500 - 11 500 Ft/m² range
+
+  Scenario: Windows/doors replacement ordered after masonry, before rough-in
+    Given a buyer includes window and door replacement (nyílászáró csere)
+    When the Construction Planner generates the sequence
+    Then "Nyílászáró csere" MUST appear after masonry and before MEP rough-in
+    And the window count MUST be estimated as area_sqm / 15
+    And the material cost MUST use 200 000 - 400 000 Ft per unit range
+    And the plan MUST warn about window installation timing relative to MEP
+
+  Scenario: Insulation phase appears after rough-in but before finishing
+    Given a buyer includes insulation (szigetelés) in their scope
+    When the Construction Planner generates the sequence
+    Then "Szigetelés" MUST appear after MEP rough-in and before plastering
+    And the material cost MUST use 2 500 - 5 000 Ft/m² range
+    And the labor cost MUST use 2 000 - 4 000 Ft/m² range
+
+  Scenario: Heating and AC appear as separate additions within MEP rough-in
+    Given a buyer includes fűtésrendszer (heating system) in their scope
+    When the Construction Planner generates the MEP phase
+    Then the rough-in description MUST include "fűtéscsövek/radiátorok"
+    And the material cost MUST be increased by 300 000 - 600 000 Ft
+    And the labor cost MUST be increased by 300 000 - 500 000 Ft
+
+    Given a buyer includes klíma (air conditioning) in their scope
+    When the Construction Planner generates the MEP phase
+    Then the rough-in description MUST include "klíma előkészítés"
+    And the material cost MUST be increased by 250 000 - 450 000 Ft
+    And the labor cost MUST be increased by 150 000 - 300 000 Ft
+
+  Scenario: Kitchen installation adds to painting/fixtures phase
+    Given a buyer includes kitchen (konyhabútor) in their scope
+    When the Construction Planner generates the sequence
+    Then the painting/fixtures phase description MUST include "konyhabútor szerelés"
+    And the material cost MUST be increased by 300 000 Ft
+    And the labor cost MUST be increased by 150 000 - 250 000 Ft
+
+  Scenario: Sparse-category work types produce a data-limitation warning
+    Given a buyer selects one or more of: szigetelés, nyílászáró, konyha, fürdő, gipszkarton, klíma, fűtésrendszer
+    When the Construction Planner generates the sequence
+    Then the response MUST include a warning containing "Adat korlátozás"
+    And the warning MUST list each selected sparse category by name
+    And the warning MUST state the pricing is "tájékoztató jellegű"
