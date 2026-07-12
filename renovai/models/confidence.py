@@ -68,7 +68,7 @@ class ConfidenceModel(BaseModel):
         """Return True if confidence indicates a speculative estimate (< 0.4)."""
         return self.score < 0.4
 
-    def describe(self) -> str:
+    def describe_hu(self) -> str:
         """Return a short Hungarian-language confidence label."""
         if self.is_reliable():
             return f"Megbízható becslés ({self.sources_count} forrás alapján)"
@@ -80,3 +80,20 @@ class ConfidenceModel(BaseModel):
         return (
             f"Közepes biztonságú becslés ({self.sources_count} forrás alapján)"
         )
+
+    def describe_en(self) -> str:
+        """Return a short English confidence label."""
+        if self.is_reliable():
+            return f"Reliable estimate (based on {self.sources_count} sources)"
+        if self.is_speculative():
+            return (
+                f"Indicative estimate only ({self.sources_count} "
+                f"sources available)"
+            )
+        return (
+            f"Moderate-confidence estimate ({self.sources_count} sources)"
+        )
+
+    def describe(self, lang: str = "HU") -> str:
+        """Return confidence label in the requested language (HU default)."""
+        return self.describe_hu() if lang == "HU" else self.describe_en()

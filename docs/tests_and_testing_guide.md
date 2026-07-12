@@ -9,7 +9,7 @@ pip install -e ".[test]"
 # 2. Run all tests
 python -m pytest tests/ -v
 
-# 3. Run only the new A2A handler tests
+# 3. Run only the new handler tests (interview + planning)
 python -m pytest tests/ -v -k "interview or planning"
 
 # 4. Load test (no external deps)

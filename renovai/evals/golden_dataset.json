@@ -317,5 +317,74 @@
       "must_return_exact_debris_removal_costs_for_both_types",
       "must_explain_weight_difference_due_to_material_density"
     ]
+  },
+  {
+    "case_id": "ajto_padlo_lanc_pre1970_008",
+    "input": {
+      "question_hu": "Egy 1960-ban épült téglaépítésű lakásban ajtócserét és parketta felbontást tervezünk. Mennyivel nő a teljes felújítás költsége az ilyen korú épületekben a kohósalak és az aljzat miatti láncreakció miatt? 55 nm, teljes felújítás.",
+      "params": {
+        "building_era": "1960",
+        "building_type": "tégla",
+        "area_sqm": 55,
+        "scope_flags": {"windows_doors": true, "flooring": true, "demolition": true},
+        "renovation_scope": "full"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "1960 előtti épületben a padlómunka és ajtócsere kohósalak láncreakciót indíthat el. A teljes aljzatfelújítás (salakmentesítés, EPS szigetelés, betonozás, szintkiegyenlítés) 2.5-3 millió Ft plusz anyagköltséggel jár a szokásos padló- és ajtómunkákon felül.",
+      "chain_active": true,
+      "chain_id": "ajto_padlo_lanc",
+      "chain_cost_low_huf": 2500000,
+      "chain_cost_high_huf": 3000000,
+      "chain_cost_point_huf": 2750000,
+      "chain_steps": [
+        "Ajtócsere/parketta felszedés → salak feltárul",
+        "Salak kitermelés és elszállítás",
+        "EPS szigetelés (hő- és hangszigetelés)",
+        "Esztrich betonozás",
+        "Szintkiegyenlítés",
+        "Új padló előkészítése"
+      ],
+      "note": "Expert-sourced figure (2.5-3.0M HUF). Not yet validated against corpus."
+    },
+    "rubric": [
+      "must_identify_slag_chain_is_triggered",
+      "must_return_exact_chain_cost_range_2_5m_3m_huf",
+      "must_return_chain_cost_point_2_75m_huf",
+      "must_describe_all_6_chain_steps_in_order",
+      "must_note_it_is_an_expert_sourced_figure",
+      "must_warn_about_hidden_technological_chain"
+    ]
+  },
+  {
+    "case_id": "high_ceiling_painting_plastering_009",
+    "input": {
+      "question_hu": "Egy 55 nm-es lakásban 3.5 méteres a belmagasság. Hogyan változik a festés és vakolás munkadíja a normál 2.75 m-es belmagassághoz képest? Teljes felújítást feltételezve.",
+      "params": {
+        "building_era": "1980",
+        "area_sqm": 55,
+        "ceiling_height": 3.5,
+        "renovation_scope": "full",
+        "scope_flags": {"painting": true, "plastering": true}
+      }
+    },
+    "expected_output": {
+      "summary_hu": "3.5 m-es belmagasság esetén a festés és vakolás munkadíja 3.5x szorzót kap a falfelület-arányos munkákra (referencia 2.75 m-nél 2.75x). Ez kb. 27%-kal magasabb munkadíjat jelent ezekre a tételekre a normál belmagassághoz képest.",
+      "ceiling_height_m": 3.5,
+      "height_multiplier": 3.5,
+      "reference_multiplier": 2.75,
+      "labor_increase_factor": 1.27,
+      "affected_trades": ["painting", "plastering", "glettelés"],
+      "not_affected_trades": ["flooring", "plumbing", "electrical", "demolition", "tiling"],
+      "explanation": "A falfestés, vakolás és glettelés munkadíja falfelület-arányos, nem alapterület-arányos. A magasabb belmagasság nagyobb falfelületet jelent, ami több munkaórát igényel."
+    },
+    "rubric": [
+      "must_identify_only_vertical_trades_are_affected",
+      "must_identify_flooring_plumbing_electrical_are_not_affected",
+      "must_return_exact_height_multiplier_3_5",
+      "must_correctly_compute_labor_increase_factor_approx_1_27",
+      "must_explain_that_painting_and_plastering_are_wall_surface_area_dependent",
+      "must_specify_ceiling_height_3_5m"
+    ]
   }
 ]

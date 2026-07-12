@@ -7,6 +7,8 @@ Feature: Expert Interviewer — Building-Physics Due Diligence (Tab 1)
     Given the system has an Expert Interviewer agent specialized in building physics
     And the corpus contains Source 5 renovation knowledge including red-flag rules
     And every response includes a confidence score from ConfidenceModel
+    And all UI text, reports, and Vibe Diffs MUST be in Hungarian by default
+    And English output is only provided as an internal fallback for human reviewers
 
   Scenario: Pre-1960 slab building triggers salak (kohósalak) red flag
     Given a buyer asks about a 50 nm apartment in a building constructed in the 1950s

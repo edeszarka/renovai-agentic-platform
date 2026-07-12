@@ -19,6 +19,12 @@ CATEGORY_LABELS_HU = {
     "flooring": "Parketta",
     "misc_masonry": "Egyéb kőműves",
     "logistics": "Szállítás/segédmunka",
+    "insulation": "Szigetelés",
+    "windows_doors": "Nyílászáró csere",
+    "kitchen": "Konyhabútor",
+    "bathroom": "Fürdőszoba",
+    "heating": "Fűtésrendszer",
+    "drywall": "Gipszkarton/álmennyezet",
 }
 
 CATEGORY_LABELS_EN = {
@@ -31,6 +37,12 @@ CATEGORY_LABELS_EN = {
     "flooring": "Flooring",
     "misc_masonry": "Misc. Masonry",
     "logistics": "Logistics",
+    "insulation": "Insulation",
+    "windows_doors": "Windows/Doors",
+    "kitchen": "Kitchen cabinetry",
+    "bathroom": "Bathroom",
+    "heating": "Heating system",
+    "drywall": "Drywall/suspended ceiling",
 }
 
 
