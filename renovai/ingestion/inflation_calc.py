@@ -8,8 +8,40 @@ from .inflation_models import CPIRecord, PriceIndex, AdjustedLineItem, AdjustedQ
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# CPI DATA SOURCE
+# ---------------------------------------------------------------------------
+# Index values come from KSH STADAT Table 1.2.1.25:
+#   "Az építőipar termelőiár-indexei, negyedévente, évkezdettől kumulált"
+#   (Construction producer price indices, quarterly, cumulative from year start)
+#
+# Source URL: https://www.ksh.hu/stadat_files/ara/hu/ara0061.html
+# Last KSH update: 2026-05-13.  Data covers 2021 Q1 – 2026 Q1.
+#
+# IMPORTANT: This is an OUTPUT-based producer price index for the
+# construction sector (TEÁOR'08 section F).  It is the closest publicly
+# available proxy for renovation cost inflation but is NOT a direct
+# "cost to renovate" index — it measures the price at which construction
+# output is sold, which includes margin, overhead, and productivity effects
+# that a pure cost index would not.
+#
+# LABOR vs MATERIALS SPLIT: KSH Table 1.8.1.1 ("Építőipari költség alapú
+# árindexek") publishes separate indices for building services/mechanical
+# installation (45.3, labor-heavy proxy) and finishing construction (45.4,
+# materials-heavy proxy).  However, that table is ARCHIVED (last data 2007)
+# and no longer updated.  No current KSH table provides a quarterly
+# labor/materials split.  Both CSV files therefore use the same overall
+# construction index.  This is a known limitation — revisit if ÉVOSZ or MNB
+# publishes component-level data.
+#
+# 2021 Q2–Q4 values are back-calculated from 2022 YoY ratios (KSH table
+# provides YoY for 2022 Q1–Q4 = 120.6, 125.0, 126.2, 126.2).
+#
+# Data should be periodically refreshed from the same STADAT table.
+# ---------------------------------------------------------------------------
+
 def load_price_index(materials_path: Path, labor_path: Path) -> PriceIndex:
-    """Loads KSH CPI data from CSV files."""
+    """Loads KSH construction producer price index data from CSV files."""
     materials = []
     if materials_path.exists():
         df = pd.read_csv(materials_path)
