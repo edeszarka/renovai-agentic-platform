@@ -81,15 +81,20 @@ CHAIN_RULES: List[ChainEntry] = [
             "Szintkiegyenlítés",
             "Új padló előkészítése",
         ],
-        "cost_low": 2_500_000,
-        "cost_high": 3_000_000,
-        "cost_point": 2_750_000,
+        # Area-scaled: base_cost + per_sqm_cost * area
+        # Calibrated so that at 30 m² the values match the original fixed costs.
+        "base_cost_low": 1_210_000,
+        "per_sqm_cost_low": 43_000,
+        "base_cost_high": 1_770_000,
+        "per_sqm_cost_high": 41_000,
+        "base_cost_point": 1_490_000,
+        "per_sqm_cost_point": 42_000,
         "description": (
             "Ajtó/Padló-lánc: régi épületben az ajtócsere vagy parketta felbontása "
             "során előkerülő kohósalak miatt szükséges teljes salakmentesítés, "
             "szigetelés és új aljzat kialakítása."
         ),
-        "note": "Expert-sourced figure (2.5-3.0M HUF). Not yet validated against corpus.",
+        "note": "Expert-sourced figure (2.5-3.0M HUF at 30 m²). Scales with area for EPS, concrete, flooring.",
     },
 ]
 
@@ -106,11 +111,16 @@ def detect_active_chains(
             active.append(rule)
     return active
 
-def chain_total_cost(active_chains: List[ChainEntry]) -> Dict[str, int]:
-    low = sum(c["cost_low"] for c in active_chains)
-    high = sum(c["cost_high"] for c in active_chains)
-    point = sum(c["cost_point"] for c in active_chains)
-    return {"low": low, "high": high, "point": point}
+def chain_total_cost(active_chains: List[ChainEntry], area_sqm: float = 30.0) -> Dict[str, int]:
+    """Compute total chain cost, area-scaled.
+
+    Each chain's cost = base_cost + per_sqm_cost * area_sqm.
+    At the reference area (30 m²) the result matches the original fixed figures.
+    """
+    low = sum(c["base_cost_low"] + c["per_sqm_cost_low"] * area_sqm for c in active_chains)
+    high = sum(c["base_cost_high"] + c["per_sqm_cost_high"] * area_sqm for c in active_chains)
+    point = sum(c["base_cost_point"] + c["per_sqm_cost_point"] * area_sqm for c in active_chains)
+    return {"low": int(low), "high": int(high), "point": int(point)}
 
 
 # ---------------------------------------------------------------------------

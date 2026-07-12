@@ -175,9 +175,9 @@ async def handle_cost_estimation(
         base_high += int(height_surcharge * 1.20)
         adjustments["height_surcharge_huf"] = height_surcharge
 
-        # 2 — Cascading cost chains
+        # 2 — Cascading cost chains (area-scaled: materials like EPS, concrete, flooring scale with m²)
         active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating)
-        chain_costs = chain_total_cost(active_chains)
+        chain_costs = chain_total_cost(active_chains, area_sqm=area_sqm)
         chain_delta = chain_costs["point"]
         if chain_delta:
             base_low += int(chain_costs["low"] * 0.85)
@@ -231,6 +231,21 @@ async def handle_cost_estimation(
             )
         adjustments["chimney_technician_huf"] = chim_cost
 
+        # --- Inflation adjustment (MUST RUN LAST) ---
+        # All structural add-ons (height surcharge, chain costs, infrastructure
+        # minimums, logistics, elevator, chimney) are priced in today's HUF.
+        # Inflation is applied to the fully composed total so that every cost
+        # component — base estimate AND structural add-ons — is adjusted
+        # consistently to the target date.  The 55/45 labor/materials split
+        # is applied to the entire estimate.
+        f_labor = estimate.get("inflation_factor_labor", 1.0)
+        f_material = estimate.get("inflation_factor_materials", 1.0)
+        labor_share = 0.55
+        combined_inflation = labor_share * f_labor + (1.0 - labor_share) * f_material
+        base_low = int(base_low * combined_inflation)
+        base_mid = int(base_mid * combined_inflation)
+        base_high = int(base_high * combined_inflation)
+
         # Build adjustment breakdown for Vibe Diff
         total_adjustments = sum(v for v in adjustments.values())
         adj_parts = []
@@ -258,7 +273,7 @@ async def handle_cost_estimation(
                 "adjustments": adjustments,
                 "adjustment_summary": adj_summary,
                 "active_chains": [
-                    {"id": c["id"], "cost_point": c["cost_point"], "description": c["description"]}
+                    {"id": c["id"], "cost_point": c["base_cost_point"] + c["per_sqm_cost_point"] * area_sqm, "description": c["description"]}
                     for c in active_chains
                 ],
             },
@@ -856,7 +871,7 @@ async def handle_construction_planning(
 
     # Chain: Ajtó/Padló-lánc (triggers for pre-1970 + windows_doors/flooring)
     active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating)
-    chain_costs = chain_total_cost(active_chains)
+    chain_costs = chain_total_cost(active_chains, area_sqm=area_sqm)
     if chain_costs["point"]:
         chain = active_chains[0]
         phases.append({

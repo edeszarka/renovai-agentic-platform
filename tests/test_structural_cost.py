@@ -98,19 +98,42 @@ class TestChainDetection:
 
     def test_chain_cost_range(self):
         chains = detect_active_chains({"windows_doors": True}, "1950")
-        costs = chain_total_cost(chains)
+        costs = chain_total_cost(chains, area_sqm=30)
+        # At 30 m² the area-scaled formula matches the original fixed values
         assert costs["low"] == 2_500_000
         assert costs["high"] == 3_000_000
         assert costs["point"] == 2_750_000
+
+    def test_chain_cost_scales_with_area(self):
+        chains = detect_active_chains({"windows_doors": True}, "1950")
+        costs_30 = chain_total_cost(chains, area_sqm=30)
+        costs_60 = chain_total_cost(chains, area_sqm=60)
+        costs_120 = chain_total_cost(chains, area_sqm=120)
+        # Larger area → higher cost
+        assert costs_60["point"] > costs_30["point"]
+        assert costs_120["point"] > costs_60["point"]
+        # 120 m² should be roughly 2–3× the 30 m² cost
+        ratio = costs_120["point"] / costs_30["point"]
+        assert 1.5 < ratio < 4.0
+
+    def test_chain_cost_zero_area_uses_base(self):
+        chains = detect_active_chains({"windows_doors": True}, "1950")
+        costs = chain_total_cost(chains, area_sqm=0)
+        # At 0 m² only the fixed base_cost remains
+        assert costs["point"] == 1_490_000
 
     def test_chain_rule_structure(self):
         assert len(CHAIN_RULES) == 1
         rule = CHAIN_RULES[0]
         assert "trigger" in rule
         assert "steps" in rule
-        assert "cost_low" in rule
-        assert "cost_high" in rule
-        assert "cost_point" in rule
+        # Area-scaled fields
+        assert "base_cost_point" in rule
+        assert "per_sqm_cost_point" in rule
+        assert "base_cost_low" in rule
+        assert "per_sqm_cost_low" in rule
+        assert "base_cost_high" in rule
+        assert "per_sqm_cost_high" in rule
 
 
 class TestInfrastructureMinimums:
