@@ -1353,6 +1353,41 @@ async def handle_construction_planning(
     }
 
 
+async def handle_combined(
+    params: dict[str, Any],
+    policy_service: Any,
+    skill_registry: Any,
+    trace_id: str,
+) -> dict[str, Any]:
+    """Handler for COMBINED intents (multiple intents detected).
+
+    The Gateway classifies a question as COMBINED when it matches two or
+    more intent keyword groups.  Because no single handler can satisfy
+    multiple intents simultaneously, this handler returns a structured
+    response that lists the detected secondary intents so the caller can
+    dispatch them sequentially.
+
+    Returns:
+        Status dict with "secondary_intents" list for the caller to iterate.
+    """
+    secondary = params.get("secondary_intents", [])
+    logger.info(
+        "[%s] COMBINED intent detected; secondary intents: %s",
+        trace_id, secondary,
+    )
+    return {
+        "status": "combined",
+        "data": {
+            "message": (
+                "A kérdés több témát is érint. "
+                "Kérlek válaszd ki, melyik részletre vagy kíváncsi."
+            ),
+            "secondary_intents": secondary,
+        },
+        "trace_id": trace_id,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Handler resolver
 # ---------------------------------------------------------------------------
@@ -1364,6 +1399,7 @@ HANDLER_MAP: dict[str, Any] = {
     "due_diligence": handle_due_diligence,
     "expert_interview": handle_expert_interview,
     "construction_planning": handle_construction_planning,
+    "combined": handle_combined,
 }
 
 
@@ -1371,5 +1407,9 @@ def resolve_handler(intent: str) -> Any:
     """Resolve a canonical intent name to its async handler function."""
     handler = HANDLER_MAP.get(intent)
     if handler is None:
-        raise ValueError(f"Unknown intent: '{intent}'. Available: {list(HANDLER_MAP.keys())}")
+        raise ValueError(
+            f"Unknown intent: '{intent}'. "
+            f"Available: {list(HANDLER_MAP.keys())}"
+        )
+    return handler
     return handler
