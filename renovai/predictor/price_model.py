@@ -218,14 +218,22 @@ async def scope_matched_estimate(
         for scope_name, cost_total in scope_line_total.items():
             scope_per_sqm[scope_name].append(cost_total / area)
 
-    # 3 — Average per-sqm cost per scope, fall back to min_premium / REFERENCE_AREA_SQM
+    # 3 — Average per-sqm cost per scope using inverse-variance weighting.
+    # Each quote's weight = 1 / ((x_i - mean)^2 + eps), so quotes far from
+    # the category mean (outliers, partial-scope quotes) are downweighted
+    # automatically without a full Bayesian model.
+    _IVW_EPS = 1.0  # prevent division by zero when a quote lands on the mean
     scope_avg_per_sqm: Dict[str, float] = {}
     scope_count: Dict[str, int] = {}
     for scope_name in SCOPE_NAMES_ORDERED:
         vals = scope_per_sqm[scope_name]
         scope_count[scope_name] = len(vals)
         if len(vals) >= 2:
-            scope_avg_per_sqm[scope_name] = float(np.mean(vals))
+            arr = np.array(vals, dtype=float)
+            mean = arr.mean()
+            variances = (arr - mean) ** 2 + _IVW_EPS
+            weights = 1.0 / variances
+            scope_avg_per_sqm[scope_name] = float(np.sum(weights * arr) / np.sum(weights))
         else:
             # Fallback: convert min_premium to per-sqm at reference area
             scope_avg_per_sqm[scope_name] = (
@@ -242,21 +250,18 @@ async def scope_matched_estimate(
     # 4b — Monotonicity guard
     monotonicity_warning = _check_monotonicity(apt_input, estimate_mid, scope_total_per_sqm)
 
-    # 5 — Inflation adjustment
+    # 5 — Compute inflation factors (NOT applied here — caller applies inflation LAST
+    # after all structural add-ons are summed, so every cost component is inflated
+    # consistently to the target date).
     baseline_date = date(2024, 2, 15)
     f_labor = get_factor(price_index, "labor", baseline_date, target_date)
     f_material = get_factor(price_index, "materials", baseline_date, target_date)
 
-    labor_share = 0.55
-    m_base = estimate_mid * (1.0 - labor_share)
-    l_base = estimate_mid * labor_share
-    estimate_adj = int((l_base * f_labor) + (m_base * f_material))
-
-    # 6 — Return predict()-compatible dict
+    # 6 — Return predict()-compatible dict (pre-inflation estimates)
     result = {
-        "estimate_low_huf": int(estimate_adj * 0.85),
-        "estimate_mid_huf": estimate_adj,
-        "estimate_high_huf": int(estimate_adj * 1.20),
+        "estimate_low_huf": int(estimate_mid * 0.85),
+        "estimate_mid_huf": estimate_mid,
+        "estimate_high_huf": int(estimate_mid * 1.20),
         "inflation_adjusted_to": target_date.isoformat(),
         "inflation_factor_labor": round(f_labor, 3),
         "inflation_factor_materials": round(f_material, 3),
