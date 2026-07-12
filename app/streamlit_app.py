@@ -136,6 +136,18 @@ LANG = {
         "tab2.elevator_large": "Van lift (≥240 kg, teherlift)",
         "tab2.gas_heating": "Egyedi gázfűtés (cirkó/gázkazán)",
         "tab2.gas_heating_help": "Gázfűtés esetén kötelező kéménytechnikai szakember bevonása",
+        "tab2.market_comparison": "📊 Piaci összehasonlítás (Ft/m²)",
+        "tab2.market_comparison_help": "Az adatbázisban lévő összes árajánlatból számolt négyzetméterárak",
+        "tab2.market_avg": "Átlagár / m²",
+        "tab2.market_median": "Mediánár / m²",
+        "tab2.market_max": "Max ár / m²",
+        "tab2.market_min": "Min ár / m²",
+        "tab2.market_count": "Ajánlatok száma",
+        "tab2.market_your_estimate": "Becsült átlagár / m²",
+        "tab2.market_scale_avg": "Korpusz átlag →",
+        "tab2.market_scale_median": "Korpusz medián →",
+        "tab2.market_scale_plan": "Ütemterv →",
+        "tab2.market_unit": "Ft/m²",
         "priority.kritikus": "kritikus",
         "priority.fontos": "fontos",
         "priority.erdemes": "érdemes_megnézni",
@@ -255,6 +267,18 @@ LANG = {
         "tab2.elevator_large": "Has elevator (≥240 kg, freight)",
         "tab2.gas_heating": "Individual gas heating (circulator/boiler)",
         "tab2.gas_heating_help": "Gas heating requires a chimney technician specialist",
+        "tab2.market_comparison": "📊 Market Comparison (Ft/m²)",
+        "tab2.market_comparison_help": "Per-square-meter prices from all quotes in the database",
+        "tab2.market_avg": "Average / m²",
+        "tab2.market_median": "Median / m²",
+        "tab2.market_max": "Max price / m²",
+        "tab2.market_min": "Min price / m²",
+        "tab2.market_count": "Number of quotes",
+        "tab2.market_your_estimate": "Estimated avg / m²",
+        "tab2.market_scale_avg": "Corpus avg →",
+        "tab2.market_scale_median": "Corpus median →",
+        "tab2.market_scale_plan": "Plan estimate →",
+        "tab2.market_unit": "Ft/m²",
         "priority.kritikus": "critical",
         "priority.fontos": "important",
         "priority.erdemes": "worth checking",
@@ -900,6 +924,62 @@ elif tab_selection == _("nav.tab2"):
                                 _("tab2.total_high"),
                                 fmt_huf(total.get("high_huf", 0)),
                             )
+
+                        # Corpus stats
+                        try:
+                            from renovai.db.quote_stats import compute_per_sqm_stats
+                            sm = get_session_maker(get_engine(
+                                os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
+                            ))
+                            corpus_stats = _run_async(compute_per_sqm_stats(sm))
+                        except Exception as exc:
+                            logger.warning("Corpus stats unavailable: %s", exc)
+                            corpus_stats = None
+
+                        if corpus_stats:
+                            o = corpus_stats["overall_per_sqm"]
+                            with st.expander(_("tab2.market_comparison"), expanded=True):
+                                st.caption(
+                                    _("tab2.market_comparison_help")
+                                    + f" ({corpus_stats['num_quotes']} {_('tab2.market_count')})"
+                                )
+                                mcols = st.columns(4)
+                                mcols[0].metric(_("tab2.market_avg"), f"{fmt_huf(o['avg'])} {_('tab2.market_unit')}")
+                                mcols[1].metric(_("tab2.market_median"), f"{fmt_huf(o['median'])} {_('tab2.market_unit')}")
+                                mcols[2].metric(_("tab2.market_min"), f"{fmt_huf(o['min'])} {_('tab2.market_unit')}")
+                                mcols[3].metric(_("tab2.market_max"), f"{fmt_huf(o['max'])} {_('tab2.market_unit')}")
+
+                                st.markdown("---")
+                                st.markdown(f"**{_('tab2.phases_title')}** — {_('tab2.market_unit')}")
+
+                                cat_rows = []
+                                for key, cat in corpus_stats["by_category"].items():
+                                    cat_rows.append({
+                                        "Munkafázis" if st.session_state.get("lang", "HU") == "HU" else "Work phase":
+                                            cat["label_hu"] if st.session_state.get("lang", "HU") == "HU" else cat["label_en"],
+                                        _("tab2.market_count"): cat["count"],
+                                        _("tab2.market_avg"): f"{fmt_huf(cat['avg_per_sqm'])} {_('tab2.market_unit')}",
+                                        _("tab2.market_median"): f"{fmt_huf(cat['median_per_sqm'])} {_('tab2.market_unit')}",
+                                        f"{_('tab2.market_min')} → {_('tab2.market_max')}":
+                                            f"{fmt_huf(cat['min_per_sqm'])} → {fmt_huf(cat['max_per_sqm'])}",
+                                    })
+                                st.dataframe(cat_rows, use_container_width=True, hide_index=True)
+
+                                st.markdown("---")
+                                st.markdown(f"**{_('tab2.market_your_estimate')}** ({area_sqm} m²)")
+                                s_cols = st.columns(3)
+                                s_cols[0].metric(
+                                    _("tab2.market_scale_avg"),
+                                    fmt_huf(o["avg"] * area_sqm),
+                                )
+                                s_cols[1].metric(
+                                    _("tab2.market_scale_median"),
+                                    fmt_huf(o["median"] * area_sqm),
+                                )
+                                s_cols[2].metric(
+                                    _("tab2.market_scale_plan"),
+                                    fmt_huf(total.get("mid_huf", 0)),
+                                )
 
                         if conf:
                             score = conf.get("score", 0)
