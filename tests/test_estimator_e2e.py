@@ -305,3 +305,86 @@ class TestCrossPathConsistency:
             session_maker, price_index, TARGET_DATE,
         )
         assert d1["estimate_mid_huf"] >= d11["estimate_mid_huf"]
+
+
+class TestNewScopeCategories:
+    """Tests for the three newly wired scope categories."""
+
+    @pytest.mark.asyncio
+    async def test_klima_produces_real_estimate(self, session_maker, price_index):
+        apt = ApartmentInput(
+            district=1, total_area_sqm=60, num_rooms=2, building_era=1970,
+            needs_plumbing=False, needs_electrical=False, needs_flooring=False,
+            needs_full_demolition=False, needs_ac=True,
+        )
+        result = await scope_matched_estimate(apt, session_maker, price_index, TARGET_DATE)
+        assert result is not None
+        assert result["estimate_mid_huf"] > 0
+        assert result["debug"]["scope_line_item_count"]["needs_ac"] >= 2
+        assert "no_corpus_data" not in result["debug"].get("scope_data_warnings", {})
+
+    @pytest.mark.asyncio
+    async def test_windows_doors_fallback(self, session_maker, price_index):
+        apt = ApartmentInput(
+            district=1, total_area_sqm=60, num_rooms=2, building_era=1970,
+            needs_plumbing=False, needs_electrical=False, needs_flooring=False,
+            needs_full_demolition=False, needs_windows_doors=True,
+        )
+        result = await scope_matched_estimate(apt, session_maker, price_index, TARGET_DATE)
+        assert result is not None
+        assert result["estimate_mid_huf"] > 0
+        assert result["debug"]["scope_line_item_count"]["needs_windows_doors"] == 0
+        assert "no_corpus_data" in result["debug"]["scope_data_warnings"]["needs_windows_doors"]
+
+    @pytest.mark.asyncio
+    async def test_insulation_fallback(self, session_maker, price_index):
+        apt = ApartmentInput(
+            district=1, total_area_sqm=60, num_rooms=2, building_era=1970,
+            needs_plumbing=False, needs_electrical=False, needs_flooring=False,
+            needs_full_demolition=False, needs_insulation=True,
+        )
+        result = await scope_matched_estimate(apt, session_maker, price_index, TARGET_DATE)
+        assert result is not None
+        assert result["estimate_mid_huf"] > 0
+        assert result["debug"]["scope_line_item_count"]["needs_insulation"] == 0
+        assert "no_corpus_data" in result["debug"]["scope_data_warnings"]["needs_insulation"]
+
+    @pytest.mark.asyncio
+    async def test_klima_no_crash_with_minimal_area(self, session_maker, price_index):
+        apt = ApartmentInput(
+            district=1, total_area_sqm=20, num_rooms=1, building_era=2000,
+            needs_plumbing=False, needs_electrical=False, needs_flooring=False,
+            needs_full_demolition=False, needs_ac=True,
+        )
+        result = await scope_matched_estimate(apt, session_maker, price_index, TARGET_DATE)
+        assert result is not None
+        assert result["estimate_mid_huf"] >= 500_000
+
+    @pytest.mark.asyncio
+    async def test_klima_adds_to_total(self, session_maker, price_index):
+        base = await scope_matched_estimate(
+            ApartmentInput(district=1, total_area_sqm=60, num_rooms=2, building_era=1970,
+                           needs_plumbing=True, needs_electrical=False, needs_flooring=False,
+                           needs_full_demolition=False),
+            session_maker, price_index, TARGET_DATE,
+        )
+        with_ac = await scope_matched_estimate(
+            ApartmentInput(district=1, total_area_sqm=60, num_rooms=2, building_era=1970,
+                           needs_plumbing=True, needs_electrical=False, needs_flooring=False,
+                           needs_full_demolition=False, needs_ac=True),
+            session_maker, price_index, TARGET_DATE,
+        )
+        assert with_ac["estimate_mid_huf"] > base["estimate_mid_huf"]
+
+    @pytest.mark.asyncio
+    async def test_all_seven_scopes_together(self, session_maker, price_index):
+        result = await scope_matched_estimate(
+            ApartmentInput(district=1, total_area_sqm=60, num_rooms=2, building_era=1970,
+                           needs_plumbing=True, needs_electrical=True, needs_flooring=True,
+                           needs_full_demolition=True, needs_windows_doors=True,
+                           needs_insulation=True, needs_ac=True),
+            session_maker, price_index, TARGET_DATE,
+        )
+        assert result is not None
+        assert result["debug"]["num_user_scopes"] == 7
+        assert result["estimate_mid_huf"] > 500_000

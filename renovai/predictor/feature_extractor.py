@@ -18,6 +18,7 @@ WORK_CATEGORIES = {
     "szállítás_segédmunka": "logistics",
     "szigetelés": "insulation",
     "nyílászáró": "windows_doors",
+    "klíma": "ac",
     "konyha": "kitchen",
     "fürdő": "bathroom",
     "fűtés_rendszer": "heating",
@@ -77,6 +78,9 @@ class ApartmentInput(BaseModel):
     needs_electrical: bool = False
     needs_flooring: bool = True
     needs_full_demolition: bool = True
+    needs_windows_doors: bool = False
+    needs_insulation: bool = False
+    needs_ac: bool = False
     suspected_slag: bool = False
 
 def extract_features(quote_json_path: Path) -> QuoteFeatures:
