@@ -1,0 +1,91 @@
+{
+  "_meta": {
+    "description": "Golden regression snapshot for estimator e2e tests",
+    "target_date": "2026-07-12",
+    "data_sources": "KSH STADAT 1.2.1.25 (2021 Q1-2026 Q1), real CPI data",
+    "regression_threshold_pct": 5.0,
+    "created": "2026-07-12"
+  },
+  "price_model": {
+    "d1_40sqm_full": {
+      "description": "Budapest D1, 40sqm, full scope, era 1960, rooms=1",
+      "inputs": {"district": 1, "total_area_sqm": 40, "num_rooms": 1, "building_era": 1960,
+                 "needs_plumbing": true, "needs_electrical": true, "needs_flooring": true, "needs_full_demolition": true},
+      "low": 2881640,
+      "mid": 3390165,
+      "high": 4068198
+    },
+    "d1_60sqm_full": {
+      "description": "Budapest D1, 60sqm, full scope, era 1960, rooms=2",
+      "inputs": {"district": 1, "total_area_sqm": 60, "num_rooms": 2, "building_era": 1960,
+                 "needs_plumbing": true, "needs_electrical": true, "needs_flooring": true, "needs_full_demolition": true},
+      "low": 4237460,
+      "mid": 4985248,
+      "high": 5982297
+    },
+    "d1_80sqm_full": {
+      "description": "Budapest D1, 80sqm, full scope, era 1960, rooms=3",
+      "inputs": {"district": 1, "total_area_sqm": 80, "num_rooms": 3, "building_era": 1960,
+                 "needs_plumbing": true, "needs_electrical": true, "needs_flooring": true, "needs_full_demolition": true},
+      "low": 5593281,
+      "mid": 6580331,
+      "high": 7896397
+    },
+    "d1_100sqm_full": {
+      "description": "Budapest D1, 100sqm, full scope, era 1960, rooms=4",
+      "inputs": {"district": 1, "total_area_sqm": 100, "num_rooms": 4, "building_era": 1960,
+                 "needs_plumbing": true, "needs_electrical": true, "needs_flooring": true, "needs_full_demolition": true},
+      "low": 6949101,
+      "mid": 8175414,
+      "high": 9810496
+    },
+    "d1_55sqm_plumbing": {
+      "description": "Budapest D1, 55sqm, plumbing only, era 1985, rooms=2",
+      "inputs": {"district": 1, "total_area_sqm": 55, "num_rooms": 2, "building_era": 1985,
+                 "needs_plumbing": true, "needs_electrical": false, "needs_flooring": false, "needs_full_demolition": false},
+      "low": 1261682,
+      "mid": 1484332,
+      "high": 1781198
+    },
+    "d1_55sqm_flooring": {
+      "description": "Budapest D1, 55sqm, flooring only, era 1985, rooms=2",
+      "inputs": {"district": 1, "total_area_sqm": 55, "num_rooms": 2, "building_era": 1985,
+                 "needs_plumbing": false, "needs_electrical": false, "needs_flooring": true, "needs_full_demolition": false},
+      "low": 862508,
+      "mid": 1014716,
+      "high": 1217659
+    },
+    "d1_55sqm_electrical": {
+      "description": "Budapest D1, 55sqm, electrical only, era 1985, rooms=2",
+      "inputs": {"district": 1, "total_area_sqm": 55, "num_rooms": 2, "building_era": 1985,
+                 "needs_plumbing": false, "needs_electrical": true, "needs_flooring": false, "needs_full_demolition": false},
+      "low": 1310246,
+      "mid": 1541466,
+      "high": 1849759
+    },
+    "d1_35sqm_full_tall": {
+      "description": "Budapest D1, 35sqm, full scope, era 1950, rooms=1, high ceilings 3.5m",
+      "inputs": {"district": 1, "total_area_sqm": 55, "num_rooms": 1, "building_era": 1950,
+                 "needs_plumbing": true, "needs_electrical": true, "needs_flooring": true, "needs_full_demolition": true},
+      "low": 2542685,
+      "mid": 2991395,
+      "high": 3589674
+    },
+    "d11_70sqm_full": {
+      "description": "Budapest D11, 70sqm, full scope, era 1975, rooms=3",
+      "inputs": {"district": 11, "total_area_sqm": 70, "num_rooms": 3, "building_era": 1975,
+                 "needs_plumbing": true, "needs_electrical": true, "needs_flooring": true, "needs_full_demolition": true},
+      "low": 4915371,
+      "mid": 5782790,
+      "high": 6939348
+    },
+    "d9_90sqm_full_noelev": {
+      "description": "Budapest D9, 90sqm, full scope, era 1960, rooms=3, no elevator",
+      "inputs": {"district": 9, "total_area_sqm": 90, "num_rooms": 3, "building_era": 1960,
+                 "needs_plumbing": true, "needs_electrical": true, "needs_flooring": true, "needs_full_demolition": true},
+      "low": 6271191,
+      "mid": 7377872,
+      "high": 8853446
+    }
+  }
+}
