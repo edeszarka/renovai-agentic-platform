@@ -78,6 +78,7 @@ async def handle_cost_estimation(
         from renovai.predictor.price_model import scope_matched_estimate, find_similar_quotes
         from renovai.ingestion.inflation_calc import load_price_index
         from renovai.predictor.feature_extractor import ApartmentInput
+        from renovai.predictor.estimation_trace import EstimationTrace, is_enabled as trace_enabled
     except ImportError:
         return {
             "status": "error",
@@ -87,17 +88,57 @@ async def handle_cost_estimation(
 
     try:
         # Build apartment input
+        scope_flags = params.get("scope_flags", {})
+        renovation_scope = params.get("renovation_scope", "full")
+        is_full = renovation_scope == "full" or all(
+            scope_flags.get(k, False) for k in ("demolition", "electrical", "plumbing")
+        )
+
+        # Full renovation always includes AC
+        if is_full:
+            scope_flags.setdefault("ac", True)
+
         apt = ApartmentInput(
             district=params.get("district", 1),
             total_area_sqm=params.get("area_sqm", 55.0),
             num_rooms=params.get("num_rooms", 2),
             building_era=params.get("building_era"),
-            needs_plumbing=params.get("scope_flags", {}).get("plumbing", False),
-            needs_electrical=params.get("scope_flags", {}).get("electrical", False),
-            needs_flooring=params.get("scope_flags", {}).get("flooring", False),
-            needs_full_demolition=params.get("scope_flags", {}).get("demolition", False),
-            suspected_slag=params.get("scope_flags", {}).get("slag", False),
+            needs_plumbing=scope_flags.get("plumbing", False),
+            needs_electrical=scope_flags.get("electrical", False),
+            needs_flooring=scope_flags.get("flooring", False),
+            needs_full_demolition=scope_flags.get("demolition", False),
+            needs_ac=scope_flags.get("ac", False),
+            needs_windows_doors=scope_flags.get("windows_doors", False),
+            needs_insulation=scope_flags.get("insulation", False),
+            suspected_slag=scope_flags.get("slag", False),
         )
+
+        # Structured trace (one JSONL record per run)
+        _trace = EstimationTrace("handle_cost_estimation") if trace_enabled() else None
+        if _trace:
+            _trace.record_input(
+                district=apt.district,
+                area_sqm=apt.total_area_sqm,
+                num_rooms=apt.num_rooms,
+                building_era=apt.building_era,
+                selected_scopes=sorted(
+                    k for k, v in {
+                        "plumbing": apt.needs_plumbing,
+                        "electrical": apt.needs_electrical,
+                        "flooring": apt.needs_flooring,
+                        "demolition": apt.needs_full_demolition,
+                        "ac": apt.needs_ac,
+                        "windows_doors": apt.needs_windows_doors,
+                        "insulation": apt.needs_insulation,
+                    }.items() if v
+                ),
+                ceiling_height=params.get("ceiling_height"),
+                elevator_type=params.get("elevator_type"),
+                floor_number=params.get("floor_number", 1),
+                gas_heating=params.get("gas_heating", False),
+                renovation_scope=params.get("renovation_scope", "full"),
+                target_date=params.get("target_date"),
+            )
 
         # Load price index
         data_root = Path(__file__).resolve().parent.parent / "data"
@@ -117,6 +158,7 @@ async def handle_cost_estimation(
 
         estimate = await scope_matched_estimate(
             apt, session_maker, price_index, date.fromisoformat(target_date),
+            trace=_trace,
         )
 
         # Find similar quotes
@@ -163,6 +205,9 @@ async def handle_cost_estimation(
         base_mid = estimate.get("estimate_mid_huf", 0)
         base_high = estimate.get("estimate_high_huf", 0)
 
+        if _trace:
+            _trace.record_subtotal("raw_corpus_estimate_mid_huf", base_mid)
+
         # 1 — Height multiplier: only applies to painting/plastering labor
         # Painting/plastering is ~15% of total mid estimate, ~70% of that is labor
         painting_share = int(base_mid * 0.15)
@@ -175,6 +220,10 @@ async def handle_cost_estimation(
         base_high += int(height_surcharge * 1.20)
         adjustments["height_surcharge_huf"] = height_surcharge
 
+        if _trace:
+            _trace.record_subtotal("ceiling_height_surcharge_huf", int(height_surcharge))
+            _trace.record_subtotal("after_ceiling_height_mid_huf", base_mid)
+
         # 2 — Cascading cost chains (area-scaled: materials like EPS, concrete, flooring scale with m²)
         active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating)
         chain_costs = chain_total_cost(active_chains, area_sqm=area_sqm)
@@ -184,6 +233,10 @@ async def handle_cost_estimation(
             base_mid += chain_delta
             base_high += int(chain_costs["high"] * 1.20)
         adjustments["chain_cost_huf"] = chain_delta
+
+        if _trace:
+            _trace.record_subtotal("chain_costs_huf", chain_delta)
+            _trace.record_subtotal("after_chain_costs_mid_huf", base_mid)
 
         # 3 — Infrastructure minimums
         is_full = renovation_scope == "full" or all(
@@ -197,6 +250,11 @@ async def handle_cost_estimation(
         adjustments["infra_minimums_huf"] = infra_delta
         warnings.extend(min_logs)
 
+        if _trace:
+            _trace.record_subtotal("infra_minimums_huf", infra_delta)
+            _trace.record_subtotal_bool("infra_triggered", infra_delta > 0)
+            _trace.record_subtotal("after_infra_minimums_mid_huf", base_mid)
+
         # 4 — Logistics surcharge (15% of total labor)
         # Total labor is ~55% of mid estimate
         total_labor = int(base_mid * 0.55)
@@ -206,6 +264,10 @@ async def handle_cost_estimation(
             base_mid += log_surcharge
             base_high += int(log_surcharge * 1.20)
         adjustments["logistics_surcharge_huf"] = log_surcharge
+
+        if _trace:
+            _trace.record_subtotal("logistics_surcharge_huf", log_surcharge)
+            _trace.record_subtotal("after_logistics_mid_huf", base_mid)
 
         # 5 — Elevator surcharge
         elev_surcharge = int(elevator_surcharge(elevator_type, floor_number))
@@ -219,6 +281,10 @@ async def handle_cost_estimation(
             )
         adjustments["elevator_surcharge_huf"] = elev_surcharge
 
+        if _trace:
+            _trace.record_subtotal("elevator_surcharge_huf", elev_surcharge)
+            _trace.record_subtotal("after_elevator_mid_huf", base_mid)
+
         # 6 — Chimney technician (conditional, gas heating only)
         chim_cost = chimney_technician_cost(floor_number) if gas_heating else 0
         if chim_cost:
@@ -230,6 +296,10 @@ async def handle_cost_estimation(
                 "(egyedi gázfűtés miatt)."
             )
         adjustments["chimney_technician_huf"] = chim_cost
+
+        if _trace:
+            _trace.record_subtotal("chimney_technician_huf", chim_cost)
+            _trace.record_subtotal("pre_inflation_total_mid_huf", base_mid)
 
         # --- Inflation adjustment (MUST RUN LAST) ---
         # All structural add-ons (height surcharge, chain costs, infrastructure
@@ -259,6 +329,19 @@ async def handle_cost_estimation(
             "estimate_mid_huf": estimate.get("estimate_mid_huf", 0),
             "estimate_high_huf": estimate.get("estimate_high_huf", 0),
         }
+
+        # Trace: record inflation + final output and write
+        if _trace:
+            _trace.record_subtotal("inflation_factor_labor", round(f_labor, 4))
+            _trace.record_subtotal("inflation_factor_materials", round(f_material, 4))
+            _trace.record_subtotal("combined_inflation_factor", round(combined_inflation, 4))
+            _trace.record_output(
+                estimate_low_huf=base_low,
+                estimate_mid_huf=base_mid,
+                estimate_high_huf=base_high,
+                adjustments=adjustments,
+            )
+            _trace.write()
 
         return {
             "status": "ok",

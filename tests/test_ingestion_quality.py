@@ -1,5 +1,5 @@
 """Data quality validation for 2023/2024 quote ingestion.
-Generated: 2026-07-10T17:13:37.662762
+Generated: 2026-07-12T13:59:51.954585
 """
 import pytest
 from pathlib import Path

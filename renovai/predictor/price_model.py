@@ -192,6 +192,7 @@ async def scope_matched_estimate(
     session_maker,
     price_index: PriceIndex,
     target_date: date,
+    trace: Optional[Any] = None,
 ) -> Optional[dict]:
     """Estimates renovation cost using price-per-m² normalization.
 
@@ -201,7 +202,25 @@ async def scope_matched_estimate(
 
     Returns same dict shape as predict() — estimate_low/mid/high_huf + debug.
     Guarantees: more selected scopes → higher estimate.
+
+    Parameters
+    ----------
+    trace : EstimationTrace, optional
+        If provided, the caller owns the trace and we populate it but do NOT
+        write it (the caller will write after adding structural steps).
+        If None, we create and write our own lightweight trace.
     """
+    from .estimation_trace import EstimationTrace, is_enabled as trace_enabled
+
+    _own_trace = False
+    if trace is not None:
+        _trace = trace
+    elif trace_enabled():
+        _trace = EstimationTrace("scope_matched_estimate")
+        _own_trace = True
+    else:
+        _trace = None
+
     if not session_maker:
         logger.error("scope_matched_estimate: no session_maker provided")
         return None
@@ -221,11 +240,25 @@ async def scope_matched_estimate(
     if num_user_scopes == 0:
         return None
 
+    if _trace:
+        _trace.record_input(
+            district=apt_input.district,
+            area_sqm=apt_input.total_area_sqm,
+            num_rooms=apt_input.num_rooms,
+            building_era=apt_input.building_era,
+            selected_scopes=sorted(user_scopes),
+            target_date=target_date.isoformat(),
+            num_quotes_in_db=len(quotes),
+        )
+
     # 2 — Aggregate per-quote scope costs, normalized by area
     # scope_per_sqm[scope_name] = list of per-sqm costs across quotes
     scope_per_sqm: Dict[str, List[float]] = {}
+    # Trace bookkeeping: parallel lists of quote ids per scope
+    scope_quote_ids: Dict[str, List[str]] = {}
     for scope_name in SCOPE_NAMES_ORDERED:
         scope_per_sqm[scope_name] = []
+        scope_quote_ids[scope_name] = []
 
     for q in quotes:
         total = q.grand_total_adjusted_huf or q.grand_total_huf
@@ -246,8 +279,10 @@ async def scope_matched_estimate(
                     )
                     break
         # Normalize each scope cost by this quote's area
+        qid = q.file_name
         for scope_name, cost_total in scope_line_total.items():
             scope_per_sqm[scope_name].append(cost_total / area)
+            scope_quote_ids[scope_name].append(qid)
 
     # 3 — Average per-sqm cost per scope using inverse-variance weighting.
     # Each quote's weight = 1 / ((x_i - mean)^2 + eps), so quotes far from
@@ -265,11 +300,13 @@ async def scope_matched_estimate(
             variances = (arr - mean) ** 2 + _IVW_EPS
             weights = 1.0 / variances
             scope_avg_per_sqm[scope_name] = float(np.sum(weights * arr) / np.sum(weights))
+            dq = "sufficient"
         else:
             # Insufficient corpus data for this scope — use min_premium as floor
             scope_avg_per_sqm[scope_name] = (
                 SCOPE_CATEGORY_MAP[scope_name]["min_premium"] / REFERENCE_AREA_SQM
             )
+            dq = "single_quote" if len(vals) == 1 else "no_corpus_data"
             if scope_count[scope_name] == 0:
                 logger.warning(
                     "Scope '%s': no historical quotes in corpus; "
@@ -278,12 +315,28 @@ async def scope_matched_estimate(
                     SCOPE_CATEGORY_MAP[scope_name]["min_premium"],
                 )
 
+        # Record category trace (purely additive)
+        if _trace and scope_name in user_scopes:
+            _trace.record_category(
+                name=scope_name,
+                raw_values=[round(v, 2) for v in vals],
+                quote_ids=scope_quote_ids[scope_name],
+                weighted_avg=scope_avg_per_sqm[scope_name],
+                count=scope_count[scope_name],
+                data_quality=dq,
+            )
+
     # 4 — Estimate = fixed contingency + sum(scope_per_sqm * query_area)
     CONTINGENCY = 200_000  # fixed costs (permits, scaffolding, etc.)
     query_area = apt_input.total_area_sqm
     scope_total_per_sqm = sum(scope_avg_per_sqm[s] for s in user_scopes)
     estimate_mid = int(CONTINGENCY + scope_total_per_sqm * query_area)
     estimate_mid = max(estimate_mid, 500_000)
+
+    if _trace:
+        _trace.record_subtotal("base_per_sqm_sum_huf", round(scope_total_per_sqm, 2))
+        _trace.record_subtotal("contingency_huf", CONTINGENCY)
+        _trace.record_subtotal("after_contingency_huf", estimate_mid)
 
     # 4b — Monotonicity guard
     monotonicity_warning = _check_monotonicity(apt_input, estimate_mid, scope_total_per_sqm)
@@ -320,6 +373,20 @@ async def scope_matched_estimate(
             "price_per_sqm_huf": round((CONTINGENCY + scope_total_per_sqm * query_area) / query_area, 0) if query_area > 0 else 0,
         },
     }
+
+    # Trace: record output and write (only if we own the trace)
+    if _trace:
+        _trace.record_output(
+            estimate_low_huf=result["estimate_low_huf"],
+            estimate_mid_huf=result["estimate_mid_huf"],
+            estimate_high_huf=result["estimate_high_huf"],
+            inflation_factor_labor=f_labor,
+            inflation_factor_materials=f_material,
+            warning=monotonicity_warning,
+        )
+        if _own_trace:
+            _trace.write()
+
     return result
 
 

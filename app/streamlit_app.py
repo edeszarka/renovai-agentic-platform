@@ -849,6 +849,7 @@ elif tab_selection == _("nav.tab2"):
                             "plastering": True,
                             "flooring": True,
                             "painting": True,
+                            "ac": True,
                         })
                     else:
                         scope_flags.update(partial_scope)

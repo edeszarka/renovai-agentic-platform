@@ -57,7 +57,7 @@ SCOPE_MAP = {
     "furdo": {},
     "futes_rendszer": {"needs_plumbing": True},
     "szigeteles": {},
-    "teljes": {"needs_plumbing": True, "needs_electrical": True, "needs_flooring": True, "needs_full_demolition": True},
+    "teljes": {"needs_plumbing": True, "needs_electrical": True, "needs_flooring": True, "needs_full_demolition": True, "needs_ac": True},
 }
 
 
