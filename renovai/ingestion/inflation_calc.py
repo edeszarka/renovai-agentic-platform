@@ -80,9 +80,31 @@ def get_factor(
         last_score = _get_q_score(sorted_records[-1].year, sorted_records[-1].quarter)
         if target_score >= last_score:
             if target_score > last_score:
-                 # logger.debug(f"Date {target_date} is after latest {component} record. Using latest value.")
-                 pass
-            return sorted_records[-1].index_value
+                logger.warning(
+                    f"Date {target_date} is after latest {component} record "
+                    f"({sorted_records[-1].year} Q{sorted_records[-1].quarter}). "
+                    f"Extrapolating from trend."
+                )
+            # Trend-based extrapolation: compute the average quarterly growth
+            # rate from the last 4 available data points and project forward.
+            # ASSUMPTION: recent trend continues at the same pace.  This should
+            # be replaced with real data once more recent KSH/ÉVOSZ quarters are
+            # sourced.  Falls back to flat clamping if fewer than 2 transitions
+            # are available.
+            last_val = sorted_records[-1].index_value
+            if len(sorted_records) >= 3:
+                # Use last 4 records (3 transitions) to compute avg multiplier
+                recent = sorted_records[-4:]
+                multipliers = [
+                    recent[i + 1].index_value / recent[i].index_value
+                    for i in range(len(recent) - 1)
+                    if recent[i].index_value > 0
+                ]
+                if multipliers:
+                    avg_multiplier = sum(multipliers) / len(multipliers)
+                    quarters_ahead = (target_score - last_score) / 0.25
+                    return last_val * (avg_multiplier ** quarters_ahead)
+            return last_val
             
         # Find the two quarters to interpolate between
         for i in range(len(sorted_records) - 1):

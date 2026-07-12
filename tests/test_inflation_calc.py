@@ -72,6 +72,56 @@ def test_graceful_handling_earliest_date(sample_price_index, caplog):
     assert pytest.approx(factor_mat) == expected_factor
     assert any("before earliest materials record" in record.message for record in caplog.records)
 
+def test_extrapolation_beyond_data(sample_price_index, caplog):
+    """Dates beyond the latest CPI record should be trend-extrapolated, not clamped."""
+    from_date = date(2024, 2, 15)  # baseline
+
+    # Latest materials record is 2025-Q1 (index_value=1.100).
+    # 2025-Q2 is one quarter beyond data — should be extrapolated.
+    to_date = date(2025, 5, 1)
+
+    with caplog.at_level(logging.WARNING):
+        factor_mat = get_factor(sample_price_index, "materials", from_date, to_date)
+
+    # Trend from sample_price_index last 4 quarters (materials):
+    #   Q2->Q3: 1.040/1.020 = 1.019608
+    #   Q3->Q4: 1.060/1.040 = 1.019231
+    #   Q4->Q1: 1.100/1.060 = 1.037736
+    # avg_multiplier = (1.019608 + 1.019231 + 1.037736) / 3
+    # Quarters from baseline 2024-Q1(mid) to 2025-Q2(mid) ≈ 4.0 quarters
+    # Quarters from 2025-Q1 to 2025-Q2 = 1.0
+    # factor = last_value(1.100) * avg_mult^1.0 / baseline_value(1.000)
+    recent = [
+        CPIRecord(year=2024, quarter=1, index_value=1.000),
+        CPIRecord(year=2024, quarter=2, index_value=1.020),
+        CPIRecord(year=2024, quarter=3, index_value=1.040),
+        CPIRecord(year=2024, quarter=4, index_value=1.060),
+        CPIRecord(year=2025, quarter=1, index_value=1.100),
+    ]
+    multipliers = [recent[i+1].index_value / recent[i].index_value for i in range(len(recent)-1)]
+    avg_mult = sum(multipliers) / len(multipliers)
+    # score for 2025-Q2 is 2025 + 1*0.25 + 0.125 = 2025.375
+    from_score = 2024.375
+    last_score = 2025.25
+    to_score = 2025.375
+    quarters_ahead = (to_score - last_score) / 0.25
+    expected_factor = 1.100 * (avg_mult ** quarters_ahead) / 1.000
+    assert pytest.approx(factor_mat, abs=0.01) == expected_factor
+    assert any("Extrapolating from trend" in record.message for record in caplog.records)
+
+
+def test_both_sides_extrapolate(sample_price_index):
+    """When both FROM and TO dates are beyond data, both sides extrapolate independently."""
+    from_date = date(2025, 3, 1)  # after latest 2025-Q1
+    to_date = date(2025, 6, 1)   # further beyond
+
+    factor_mat = get_factor(sample_price_index, "materials", from_date, to_date)
+    # Both are extrapolated; factor should differ from 1.0 (not clamped)
+    assert factor_mat != 1.0
+    # Factor should be close to 1.0 (short gap) but not exactly 1.0
+    assert 0.99 < factor_mat < 1.05
+
+
 def test_adjust_quote(sample_price_index):
     # Quote from 2024 Q1 (Mid-Q1 is 2024-02-15)
     metadata = QuoteMetadata(
