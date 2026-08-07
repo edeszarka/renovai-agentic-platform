@@ -1141,36 +1141,57 @@ async def handle_construction_planning(
         total_labor_low += paint_labor_low
         total_labor_high += paint_labor_high
 
-    # Phase I: Electrical standardization minimum (full renovation only)
-    if is_full_renovation:
-        elec_std_min = 300_000
+    # Phase I/II: Infrastructure minimums — defensive top-up via the shared
+    # structural_cost.apply_infrastructure_minimums() instead of the old
+    # unconditional 300k electrical / 800k gas adds. The function only tops up
+    # to the floor when the accrued phases imply electrical (12% of mid) /
+    # gas-heating (20% of mid) coverage below the minimum — matching
+    # handle_cost_estimation() (handlers.py:192). Both calls start from the same
+    # pre-minimum base, so their deltas sum to exactly the combined top-up the
+    # function computes in one shot; this lets us keep the two minimums as
+    # separate phases while staying faithful to the shared function's semantics.
+    pre_min_mid = (total_low + total_high) // 2
+
+    # Electrical top-up (gas disabled so only the electrical check applies)
+    _, elec_adj_mid, _, _ = apply_infrastructure_minimums(
+        total_low, pre_min_mid, total_high, is_full_renovation, False,
+    )
+    elec_delta = elec_adj_mid - pre_min_mid
+
+    # Combined top-up with the real gas flag; gas portion = combined - electrical
+    _, combined_adj_mid, _, infra_logs = apply_infrastructure_minimums(
+        total_low, pre_min_mid, total_high, is_full_renovation, gas_heating,
+    )
+    gas_delta = (combined_adj_mid - pre_min_mid) - elec_delta
+
+    if elec_delta:
         phases.append({
             "step": max(p["step"] for p in phases) + 1 if phases else 1,
             "name": "Elektromos szabványosítás (Electrical Standardization)",
             "description": "Minden fázis után: elektromos hálózat szabványosítása, "
                            "új elosztótábla, biztonsági földelés. Kötelező minimum.",
-            "material_cost_range": f"{elec_std_min:,} - {elec_std_min:,} Ft",
+            "material_cost_range": f"{elec_delta:,} - {elec_delta:,} Ft",
             "labor_cost_range": "0 Ft (építési munkadíjban benne)",
             "is_infrastructure_minimum": True,
         })
-        total_low += elec_std_min
-        total_high += elec_std_min
+        total_low += elec_delta
+        total_high += elec_delta
 
-    # Phase II: Gas/Heating baseline — chimney + design (full renovation + gas only)
-    show_gas_infra = is_full_renovation and gas_heating
-    if show_gas_infra:
-        gas_baseline = 800_000
+    if gas_delta:
         phases.append({
             "step": max(p["step"] for p in phases) + 1 if phases else 1,
             "name": "Gáz/Fűtés alapinfrastruktúra (Gas/Heating Baseline)",
             "description": "Kéményvizsgálat, gázterv, kéménybélelés, "
                            "fűtésrendszer tervezése. Kötelező minimum.",
-            "material_cost_range": f"{gas_baseline:,} - {gas_baseline:,} Ft",
+            "material_cost_range": f"{gas_delta:,} - {gas_delta:,} Ft",
             "labor_cost_range": "0 Ft (építési munkadíjban benne)",
             "is_infrastructure_minimum": True,
         })
-        total_low += gas_baseline
-        total_high += gas_baseline
+        total_low += gas_delta
+        total_high += gas_delta
+
+    if elec_delta or gas_delta:
+        warnings.extend(infra_logs)
 
     # Phase III: Chimney technician (conditional, gas heating only)
     if gas_heating:
@@ -1194,12 +1215,14 @@ async def handle_construction_planning(
             "(egyedi gázfűtés miatt kötelező)."
         )
 
-    # Logistics surcharge: 15% of total labor (full renovation only)
+    # Logistics surcharge: 15% of total labor (full renovation only), via the
+    # shared structural_cost.compute_logistics_surcharge() instead of an inline
+    # reimplementation — same number, single source of truth (handlers.py:203).
     logistics_surcharge_low = 0
     logistics_surcharge_high = 0
     if is_full_renovation:
-        logistics_surcharge_low = int(total_labor_low * 0.15)
-        logistics_surcharge_high = int(total_labor_high * 0.15)
+        logistics_surcharge_low = int(compute_logistics_surcharge(total_labor_low))
+        logistics_surcharge_high = int(compute_logistics_surcharge(total_labor_high))
         # Elevator-based adjustment
         elev_extra = int(elevator_surcharge(elevator_type, floor_number))
         logistics_desc = (
