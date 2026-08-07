@@ -1,6 +1,7 @@
 import pytest
+from datetime import date
 from pathlib import Path
-from renovai.ingestion.quote_parser import parse_quote
+from renovai.ingestion.quote_parser import parse_quote, infer_quote_year_from_path
 from renovai.ingestion.number_parser import parse_huf
 from renovai.ingestion.address_extractor import extract_address, postal_to_district
 
@@ -81,3 +82,48 @@ def test_komplett():
     quote = parse_quote(path)
     assert quote.quote_style == "scope_only"
     assert quote.metadata.address_raw is None
+
+
+class TestInferQuoteYearFromPath:
+    def test_valid_year_folder(self):
+        p = Path("data/raw/quotes/2022/foo.xlsx")
+        assert infer_quote_year_from_path(p) == 2022
+
+    def test_non_numeric_folder_raises(self):
+        p = Path("data/raw/quotes/not_a_year/foo.xlsx")
+        with pytest.raises(ValueError, match="not a numeric year"):
+            infer_quote_year_from_path(p)
+
+    def test_year_out_of_range_raises(self):
+        p = Path("data/raw/quotes/2010/foo.xlsx")
+        with pytest.raises(ValueError, match="outside the expected range"):
+            infer_quote_year_from_path(p)
+
+    def test_year_too_far_future_raises(self):
+        p = Path("data/raw/quotes/2030/foo.xlsx")
+        with pytest.raises(ValueError, match="outside the expected range"):
+            infer_quote_year_from_path(p)
+
+    def test_boundary_year_low(self):
+        p = Path("data/raw/quotes/2015/foo.xlsx")
+        assert infer_quote_year_from_path(p) == 2015
+
+    def test_boundary_year_high(self):
+        p = Path("data/raw/quotes/2026/foo.xlsx")
+        assert infer_quote_year_from_path(p) == 2026
+
+
+def test_parse_quote_uses_folder_year_not_mtime(tmp_path):
+    """parse_quote() sets quote_date to Jan 1 of the parent folder year."""
+    import openpyxl
+    quotes_root = tmp_path / "2022"
+    quotes_root.mkdir(parents=True)
+    xlsx_path = quotes_root / "test_quote.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Munka megnevezése", "Munkadíj", "Anyag", "Összesen"])
+    ws.append(["Bontás", 50000, None, 50000])
+    wb.save(str(xlsx_path))
+
+    quote = parse_quote(xlsx_path)
+    assert quote.metadata.quote_date == date(2022, 1, 1)

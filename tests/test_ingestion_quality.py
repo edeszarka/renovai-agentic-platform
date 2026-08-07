@@ -53,10 +53,7 @@ def test_inflation_adjustment_direction():
     losses = []
     for f in ALL_NEW_QUOTES:
         try:
-            folder_year = int(f.parent.name)
-            inferred_date = date(folder_year, 7, 1)
             q = parse_quote(f)
-            q.metadata.quote_date = inferred_date
             adj = adjust_quote(q, pi, date(2026, 7, 10))
             if adj.grand_total_adjusted < adj.grand_total_original:
                 pct = (adj.grand_total_adjusted / adj.grand_total_original - 1) * 100
