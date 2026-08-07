@@ -231,20 +231,9 @@ async def handle_cost_estimation(
             )
         adjustments["chimney_technician_huf"] = chim_cost
 
-        # --- Inflation adjustment (MUST RUN LAST) ---
-        # All structural add-ons (height surcharge, chain costs, infrastructure
-        # minimums, logistics, elevator, chimney) are priced in today's HUF.
-        # Inflation is applied to the fully composed total so that every cost
-        # component — base estimate AND structural add-ons — is adjusted
-        # consistently to the target date.  The 55/45 labor/materials split
-        # is applied to the entire estimate.
-        f_labor = estimate.get("inflation_factor_labor", 1.0)
-        f_material = estimate.get("inflation_factor_materials", 1.0)
-        labor_share = 0.55
-        combined_inflation = labor_share * f_labor + (1.0 - labor_share) * f_material
-        base_low = int(base_low * combined_inflation)
-        base_mid = int(base_mid * combined_inflation)
-        base_high = int(base_high * combined_inflation)
+        # Inflation is already resolved per-quote inside scope_matched_estimate().
+        # Structural add-ons (height, chains, infra, logistics, elevator, chimney)
+        # are computed in current-day HUF and are NOT inflated again.
 
         # Build adjustment breakdown for Vibe Diff
         total_adjustments = sum(v for v in adjustments.values())
@@ -267,6 +256,7 @@ async def handle_cost_estimation(
                 "estimate_mid_huf": base_mid,
                 "estimate_high_huf": base_high,
                 "inflation_adjusted_to": target_date,
+                "inflation_factor_range": estimate.get("inflation_factor_range", {}),
                 "similar_quotes": similar,
                 "warnings": warnings,
                 "base_estimate": base_estimate_out,
