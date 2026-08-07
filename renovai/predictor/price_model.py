@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from .feature_extractor import QuoteFeatures, ApartmentInput, extract_features
 from ..ingestion.inflation_models import PriceIndex
-from ..ingestion.inflation_calc import get_factor
+from ..ingestion.inflation_calc import inflate_quote_value, compound_inflation_factor
 from ..db.models import Quote
 
 logger = logging.getLogger(__name__)
@@ -190,9 +190,10 @@ async def scope_matched_estimate(
     if num_user_scopes == 0:
         return None
 
-    # 2 — Aggregate per-quote scope costs, normalized by area
+    # 2 — Aggregate per-quote scope costs, normalized by area and inflated to target_date
     # scope_per_sqm[scope_name] = list of per-sqm costs across quotes
     scope_per_sqm: Dict[str, List[float]] = {}
+    infl_factors: List[float] = []
     for scope_name in SCOPE_NAMES_ORDERED:
         scope_per_sqm[scope_name] = []
 
@@ -214,9 +215,14 @@ async def scope_matched_estimate(
                         scope_line_total.get(scope_name, 0) + li.total_cost_huf
                     )
                     break
-        # Normalize each scope cost by this quote's area
+        # Per-quote inflation: inflate to target_date before averaging
+        quote_year = q.quote_date.year if q.quote_date else 2024
+        f_blended = inflate_quote_value(1.0, quote_year, target_date, price_index)
+        infl_factors.append(f_blended)
         for scope_name, cost_total in scope_line_total.items():
-            scope_per_sqm[scope_name].append(cost_total / area)
+            scope_per_sqm[scope_name].append(
+                inflate_quote_value(cost_total / area, quote_year, target_date, price_index)
+            )
 
     # 3 — Average per-sqm cost per scope using inverse-variance weighting.
     # Each quote's weight = 1 / ((x_i - mean)^2 + eps), so quotes far from
@@ -250,21 +256,26 @@ async def scope_matched_estimate(
     # 4b — Monotonicity guard
     monotonicity_warning = _check_monotonicity(apt_input, estimate_mid, scope_total_per_sqm)
 
-    # 5 — Compute inflation factors (NOT applied here — caller applies inflation LAST
-    # after all structural add-ons are summed, so every cost component is inflated
-    # consistently to the target date).
-    baseline_date = date(2024, 2, 15)
-    f_labor = get_factor(price_index, "labor", baseline_date, target_date)
-    f_material = get_factor(price_index, "materials", baseline_date, target_date)
+    # 5 — Compute inflation factor range from per-quote blended factors
+    # (inflation is already resolved in per-sqm values above; these stats are
+    # for EstimationTrace/debugging visibility only).
+    infl_factor_stats: Dict[str, float] = {}
+    if infl_factors:
+        arr = np.array(infl_factors, dtype=float)
+        infl_factor_stats = {
+            "min": round(float(arr.min()), 4),
+            "max": round(float(arr.max()), 4),
+            "mean": round(float(arr.mean()), 4),
+            "count": len(infl_factors),
+        }
 
-    # 6 — Return predict()-compatible dict (pre-inflation estimates)
+    # 6 — Return predict()-compatible dict (estimates already in target-date HUF)
     result = {
         "estimate_low_huf": int(estimate_mid * 0.85),
         "estimate_mid_huf": estimate_mid,
         "estimate_high_huf": int(estimate_mid * 1.20),
         "inflation_adjusted_to": target_date.isoformat(),
-        "inflation_factor_labor": round(f_labor, 3),
-        "inflation_factor_materials": round(f_material, 3),
+        "inflation_factor_range": infl_factor_stats,
         "model_used": "scope_matched_per_sqm",
         "warning": monotonicity_warning,
         "debug": {
@@ -355,10 +366,11 @@ def predict(
     total = int(total * user_area / REFERENCE_AREA_SQM)
     total = max(total, 500_000)
 
-    # Inflation
-    baseline_date = date(2024, 2, 15)
-    f_labor = get_factor(price_index, "labor", baseline_date, target_date)
-    f_material = get_factor(price_index, "materials", baseline_date, target_date)
+    # Inflation — deprecated code path has no per-quote year; use today as baseline
+    # (effectively no-op: this function is deprecated in favour of scope_matched_estimate())
+    baseline_date = date.today()
+    f_labor = compound_inflation_factor(baseline_date.year, target_date, price_index, "labor")
+    f_material = compound_inflation_factor(baseline_date.year, target_date, price_index, "materials")
     labor_share = 0.55
     total_adj = int(total * (labor_share * f_labor + (1.0 - labor_share) * f_material))
 
@@ -367,8 +379,11 @@ def predict(
         "estimate_mid_huf": total_adj,
         "estimate_high_huf": int(total_adj * 1.20),
         "inflation_adjusted_to": target_date.isoformat(),
-        "inflation_factor_labor": round(f_labor, 3),
-        "inflation_factor_materials": round(f_material, 3),
+        "inflation_factor_range": {
+            "min": round(min(f_labor, f_material), 4),
+            "max": round(max(f_labor, f_material), 4),
+            "mean": round((f_labor + f_material) / 2, 4),
+        },
         "model_used": "cost_breakdown",
         "warning": "predict() is deprecated; use scope_matched_estimate() for DB-backed estimates.",
     }
