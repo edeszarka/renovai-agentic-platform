@@ -827,6 +827,68 @@ async def handle_construction_planning(
 
     has_shower = scope.get("built_in_shower", False)
     is_full_renovation = params.get("renovation_scope", "full") == "full"
+    era_int = int(building_era) if building_era and building_era.isdigit() else 9999
+    floor_work_requested = scope.get("flooring", False) or scope.get("demolition", False)
+    slag_from_flags = scope.get("slag", False)
+    if not slag_from_flags and era_int < 1960 and floor_work_requested:
+        slag_from_flags = True
+
+    # Item G1: call the corpus-based estimator to source per-category costs.
+    # Build an ApartmentInput from plan_params and run scope_matched_estimate.
+    from renovai.predictor.feature_extractor import ApartmentInput
+
+    plan_apt = ApartmentInput(
+        district=params.get("district", 5),
+        total_area_sqm=area_sqm,
+        num_rooms=params.get("num_rooms", 2),
+        building_era=era_int if era_int != 9999 else None,
+        needs_plumbing=scope.get("plumbing", is_full_renovation),
+        needs_electrical=scope.get("electrical", is_full_renovation),
+        needs_flooring=scope.get("flooring", is_full_renovation),
+        needs_full_demolition=scope.get("demolition", is_full_renovation),
+        needs_windows_doors=scope.get("windows_doors", is_full_renovation),
+        needs_insulation=scope.get("insulation", is_full_renovation),
+        needs_ac=scope.get("ac", is_full_renovation),
+        suspected_slag=slag_from_flags,
+    )
+    try:
+        from renovai.predictor.price_model import scope_matched_estimate
+        from renovai.db.session import get_engine, get_session_maker
+
+        db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
+        estimator_engine = get_engine(db_url)
+        estimator_sm = get_session_maker(estimator_engine)
+        plan_est = await scope_matched_estimate(
+            plan_apt, estimator_sm, price_index, target_date, include_breakdown=True,
+        )
+        categories = plan_est.get("categories", {}) if plan_est else {}
+    except Exception as exc:
+        logger.warning("[%s] scope_matched_estimate failed: %s — falling back to hardcoded", trace_id, exc)
+        categories = {}
+        plan_est = None
+
+    # Helper: get phase costs from a scope's categories entry.
+    # Falls back to None if categories unavailable; caller provides fallback.
+    # Material/labor split uses the codebase-standard 55/45 ratio.
+    _LABOR_SHARE = 0.55
+
+    def _phase_from_scope(scope_name: str):
+        """Return (mat_low, mat_high, lab_low, lab_high, data_source) from corpus."""
+        c = categories.get(scope_name, {})
+        if not c or not c.get("estimate_huf"):
+            return None, None, None, None, "hardcoded_2025"
+        el = c["estimate_huf"]["low"]
+        em = c["estimate_huf"]["mid"]
+        eh = c["estimate_huf"]["high"]
+        mat_lo = int(el * (1.0 - _LABOR_SHARE))
+        mat_hi = int(eh * (1.0 - _LABOR_SHARE))
+        lab_lo = int(el * _LABOR_SHARE)
+        lab_hi = int(eh * _LABOR_SHARE)
+        if c.get("fallback_used"):
+            ds = "corpus_fallback"
+        else:
+            ds = "corpus"
+        return mat_lo, mat_hi, lab_lo, lab_hi, ds
 
     # Sparse-category corpus support tracking
     # Categories with < 2 quotes in the DB corpus get a data-limitation warning
@@ -844,10 +906,9 @@ async def handle_construction_planning(
     warnings: list[str] = []
 
     # Cascading logic: pre-1960 buildings with floor work trigger full Slag Chain
-    era_int = int(building_era) if building_era and building_era.isdigit() else 9999
-    has_slag = scope.get("slag", False)
-    floor_work_requested = scope.get("flooring", False) or scope.get("demolition", False)
-    if not has_slag and era_int < 1960 and floor_work_requested:
+    # (era_int, floor_work_requested, slag_from_flags computed above for ApartmentInput)
+    has_slag = slag_from_flags
+    if not scope.get("slag", False) and era_int < 1960 and floor_work_requested:
         has_slag = True
         warnings.append(
             "1960 előtti épületben a padlómunka kohósalak "
@@ -887,6 +948,7 @@ async def handle_construction_planning(
                 "eps_material": f"{slag_eps_low:,} - {slag_eps_high:,} Ft",
                 "concrete_leveling": f"{slag_concrete_low:,} - {slag_concrete_high:,} Ft  ({slag_concrete_per_sqm_low:,} - {slag_concrete_per_sqm_high:,} Ft/nm)",
             },
+            "data_source": "hardcoded_2025",
         })
         total_low += slag_mat_total_low + slag_labor_total_low
         total_high += slag_mat_total_high + slag_labor_total_high
@@ -912,6 +974,7 @@ async def handle_construction_planning(
             "material_cost_range": f"{chain_costs['low']:,} - {chain_costs['high']:,} Ft",
             "labor_cost_range": "0 Ft (lánc anyagköltségben benne)",
             "chain_id": chain["id"],
+            "data_source": "hardcoded_2025",
         })
         total_low += chain_costs["low"]
         total_high += chain_costs["high"]
@@ -919,21 +982,29 @@ async def handle_construction_planning(
             f"{chain['description']} (szakértői adat, korpusz által nem validált)."
         )
 
-    # Phase 1: Demolition (skippable in partial mode)
+    # Phase 1: Demolition (skippable in partial mode) — corpus-wired via needs_full_demolition
     if scope.get("demolition", is_full_renovation):
-        demo_low = int(1000 * area_sqm)
-        demo_high = int(2000 * area_sqm)
+        dm_l, dm_h, dl_l, dl_h, dd_src = _phase_from_scope("needs_full_demolition")
+        if dm_l is not None:
+            demo_mat_low, demo_mat_high = dm_l, dm_h
+            demo_lab_low, demo_lab_high = dl_l, dl_h
+        else:
+            demo_mat_low, demo_mat_high = 25000, 50000
+            demo_lab_low = int(1000 * area_sqm)
+            demo_lab_high = int(2000 * area_sqm)
+            dd_src = "hardcoded_2025"
         phases.append({
             "step": max(p["step"] for p in phases) + 1 if phases else 1,
             "name": "Bontás (Demolition)",
             "description": "Régi burkolatok, válaszfalak, szerelvények eltávolítása",
-            "material_cost_range": "0 - 50 000 Ft",
-            "labor_cost_range": f"{demo_low:,} - {demo_high:,} Ft",
+            "material_cost_range": f"{demo_mat_low:,} - {demo_mat_high:,} Ft",
+            "labor_cost_range": f"{demo_lab_low:,} - {demo_lab_high:,} Ft",
+            "data_source": dd_src,
         })
-        total_low += demo_low + 25000
-        total_high += demo_high + 50000
-        total_labor_low += demo_low
-        total_labor_high += demo_high
+        total_low += demo_mat_low + demo_lab_low
+        total_high += demo_mat_high + demo_lab_high
+        total_labor_low += demo_lab_low
+        total_labor_high += demo_lab_high
 
     # Phase 2: Masonry (+ floor reinforcement for pre-1920 with acél gerendás, skippable in partial mode)
     if is_full_renovation or scope.get("masonry", True):
@@ -971,6 +1042,7 @@ async def handle_construction_planning(
             "description": masonry_desc,
             "material_cost_range": f"{masonry_low:,} - {masonry_high:,} Ft",
             "labor_cost_range": f"{mason_labor_low:,} - {mason_labor_high:,} Ft",
+            "data_source": "hardcoded_2025",
         })
         total_low += masonry_low + mason_labor_low
         total_high += masonry_high + mason_labor_high
@@ -993,27 +1065,35 @@ async def handle_construction_planning(
             "description": "Gipszkarton falazás, álmennyezet kialakítása, CD profil vázszerkezet",
             "material_cost_range": f"{dw_mat_total_low:,} - {dw_mat_total_high:,} Ft",
             "labor_cost_range": f"{dw_lab_total_low:,} - {dw_lab_total_high:,} Ft",
+            "data_source": "hardcoded_2025",
         })
         total_low += dw_mat_total_low + dw_lab_total_low
         total_high += dw_mat_total_high + dw_lab_total_high
         total_labor_low += dw_lab_total_low
         total_labor_high += dw_lab_total_high
 
-    # Phase 2c: Windows / doors replacement (after framing, before rough-in)
+    # Phase 2c: Windows / doors replacement — corpus-wired via needs_windows_doors
     if is_full_renovation or scope.get("windows_doors", False):
-        win_per_unit_low = 200000
-        win_per_unit_high = 400000
-        num_units = max(1, int(area_sqm / 15))  # rough estimate: 1 window per 15m2
-        win_mat_low = win_per_unit_low * num_units
-        win_mat_high = win_per_unit_high * num_units
-        win_lab_low = 25000 * num_units
-        win_lab_high = 35000 * num_units
+        wm_l, wm_h, wl_l, wl_h, wd_src = _phase_from_scope("needs_windows_doors")
+        if wm_l is not None:
+            win_mat_low, win_mat_high = wm_l, wm_h
+            win_lab_low, win_lab_high = wl_l, wl_h
+            num_units = max(1, int(area_sqm / 15))
+        else:
+            win_per_unit_low, win_per_unit_high = 200000, 400000
+            num_units = max(1, int(area_sqm / 15))
+            win_mat_low = win_per_unit_low * num_units
+            win_mat_high = win_per_unit_high * num_units
+            win_lab_low = 25000 * num_units
+            win_lab_high = 35000 * num_units
+            wd_src = "hardcoded_2025"
         phases.append({
             "step": max(p["step"] for p in phases) + 1 if phases else 1,
             "name": "Nyílászáró csere (Windows & Doors)",
             "description": f"Új ablakok ({num_units} db) és beltéri ajtók cseréje, tokok beépítése",
             "material_cost_range": f"{win_mat_low:,} - {win_mat_high:,} Ft",
             "labor_cost_range": f"{win_lab_low:,} - {win_lab_high:,} Ft",
+            "data_source": wd_src,
         })
         total_low += win_mat_low + win_lab_low
         total_high += win_mat_high + win_lab_high
@@ -1024,7 +1104,8 @@ async def handle_construction_planning(
             "munka után, a gépészet előtt történjen."
         )
 
-    # Phase 3: Rough-in (MEP — mechanical, electrical, plumbing)
+    # Phase 3: Rough-in (MEP) — corpus-wired from plumbing + electrical + AC.
+    # Heating is NOT in SCOPE_CATEGORY_MAP yet; stays hardcoded.
     has_rough_in = (
         is_full_renovation
         or scope.get("plumbing", False)
@@ -1033,11 +1114,30 @@ async def handle_construction_planning(
         or scope.get("ac", False)
     )
     if has_rough_in:
-        # Base rough-in: always includes at least electrical work
-        rough_mat_low = 200000
-        rough_mat_high = 500000
-        rough_lab_low = 500000
-        rough_lab_high = 1000000
+        # Sum corpus contributions from plumbing + electrical + AC
+        pm_l, pm_h, pl_l, pl_h, _ = _phase_from_scope("needs_plumbing")
+        em_l, em_h, el_l, el_h, _ = _phase_from_scope("needs_electrical")
+        am_l, am_h, al_l, al_h, _ = _phase_from_scope("needs_ac")
+        rough_mat_low = (pm_l or 0) + (em_l or 0) + (am_l or 0)
+        rough_mat_high = (pm_h or 0) + (em_h or 0) + (am_h or 0)
+        rough_lab_low = (pl_l or 0) + (el_l or 0) + (al_l or 0)
+        rough_lab_high = (pl_h or 0) + (el_h or 0) + (al_h or 0)
+
+        # Determine combined data_source: corpus if any scope uses corpus,
+        # corpus_fallback if any uses fallback but none are corpus,
+        # otherwise hardcoded_2025
+        srcs = set(
+            _phase_from_scope(s)[4]
+            for s in ("needs_plumbing", "needs_electrical", "needs_ac")
+            if categories.get(s)
+        )
+        if "corpus" in srcs:
+            rough_src = "corpus"
+        elif "corpus_fallback" in srcs:
+            rough_src = "corpus_fallback"
+        else:
+            rough_src = "hardcoded_2025"
+
         desc_parts = ["Vízvezeték", "villanyvezeték"]
         if scope.get("heating", is_full_renovation):
             rough_mat_low += 300000
@@ -1046,10 +1146,6 @@ async def handle_construction_planning(
             rough_lab_high += 500000
             desc_parts.append("fűtéscsövek/radiátorok")
         if scope.get("ac", False):
-            rough_mat_low += 250000
-            rough_mat_high += 450000
-            rough_lab_low += 150000
-            rough_lab_high += 300000
             desc_parts.append("klíma előkészítés")
         phases.append({
             "step": max(p["step"] for p in phases) + 1,
@@ -1057,24 +1153,32 @@ async def handle_construction_planning(
             "description": " és ".join(desc_parts) + " elhelyezése, szerelése",
             "material_cost_range": f"{rough_mat_low:,} - {rough_mat_high:,} Ft",
             "labor_cost_range": f"{rough_lab_low:,} - {rough_lab_high:,} Ft",
+            "data_source": rough_src,
         })
         total_low += rough_mat_low + rough_lab_low
         total_high += rough_mat_high + rough_lab_high
         total_labor_low += rough_lab_low
         total_labor_high += rough_lab_high
 
-    # Phase 3b: Insulation (after rough-in, before finishing)
+    # Phase 3b: Insulation — corpus-wired via needs_insulation (fallback-only)
     if is_full_renovation or scope.get("insulation", False):
-        ins_mat_low = int(2500 * area_sqm)
-        ins_mat_high = int(5000 * area_sqm)
-        ins_lab_low = int(2000 * area_sqm)
-        ins_lab_high = int(4000 * area_sqm)
+        im_l, im_h, il_l, il_h, in_src = _phase_from_scope("needs_insulation")
+        if im_l is not None:
+            ins_mat_low, ins_mat_high = im_l, im_h
+            ins_lab_low, ins_lab_high = il_l, il_h
+        else:
+            ins_mat_low = int(2500 * area_sqm)
+            ins_mat_high = int(5000 * area_sqm)
+            ins_lab_low = int(2000 * area_sqm)
+            ins_lab_high = int(4000 * area_sqm)
+            in_src = "hardcoded_2025"
         phases.append({
             "step": max(p["step"] for p in phases) + 1 if phases else 1,
             "name": "Szigetelés (Insulation)",
             "description": "Hőszigetelés és/vagy hangszigetelés, párazáró fólia, EPS/ásványgyapot",
             "material_cost_range": f"{ins_mat_low:,} - {ins_mat_high:,} Ft",
             "labor_cost_range": f"{ins_lab_low:,} - {ins_lab_high:,} Ft",
+            "data_source": in_src,
         })
         total_low += ins_mat_low + ins_lab_low
         total_high += ins_mat_high + ins_lab_high
@@ -1107,6 +1211,7 @@ async def handle_construction_planning(
             ),
             "material_cost_range": f"{plaster_material:,} - {plaster_material + 100000:,} Ft",
             "labor_cost_range": f"{plaster_labor_low:,} - {plaster_labor_high:,} Ft",
+            "data_source": "hardcoded_2025",
         })
         total_low += plaster_material + plaster_labor_low
         total_high += (plaster_material + 100000) + plaster_labor_high
@@ -1114,12 +1219,24 @@ async def handle_construction_planning(
         total_labor_high += plaster_labor_high
 
     # Phase 5: Flooring (with optional waterproofing upgrade, skippable in partial mode)
+    # Phase 5: Flooring — corpus-wired via needs_flooring
     if is_full_renovation or scope.get("flooring", True):
-        floor_material = 130000
-        floor_labor_low = 300000
-        floor_labor_high = 600000
+        fm_l, fm_h, fl_l, fl_h, fl_src = _phase_from_scope("needs_flooring")
+        if fm_l is not None:
+            floor_material = (fm_l + fm_h) // 2
+            floor_material_high_range = floor_material + 120000  # buffer
+            floor_labor_low, floor_labor_high = fl_l, fl_h
+            floor_material_low = min(fm_l, fm_h)
+        else:
+            floor_material = 130000
+            floor_material_low = 130000
+            floor_material_high_range = 250000
+            floor_labor_low, floor_labor_high = 300000, 600000
+            fl_src = "hardcoded_2025"
         if has_shower:
             floor_material += 130000
+            floor_material_low += 130000
+            floor_material_high_range += 130000
             floor_labor_low += 50000
             floor_labor_high += 80000
             warnings.append("Épített zuhany miatt cementbázisú szigetelés szükséges!")
@@ -1131,11 +1248,12 @@ async def handle_construction_planning(
                 if has_shower
                 else "Csempe/járólap burkolás"
             ),
-            "material_cost_range": f"{floor_material:,} - {floor_material + 120000:,} Ft",
+            "material_cost_range": f"{floor_material_low:,} - {floor_material_high_range:,} Ft",
             "labor_cost_range": f"{floor_labor_low:,} - {floor_labor_high:,} Ft",
+            "data_source": fl_src,
         })
-        total_low += floor_material + floor_labor_low
-        total_high += (floor_material + 120000) + floor_labor_high
+        total_low += floor_material_low + floor_labor_low
+        total_high += floor_material_high_range + floor_labor_high
         total_labor_low += floor_labor_low
         total_labor_high += floor_labor_high
 
@@ -1166,6 +1284,7 @@ async def handle_construction_planning(
             "description": desc_6,
             "material_cost_range": f"{paint_material:,} - {paint_material + 50000:,} Ft",
             "labor_cost_range": f"{paint_labor_low:,} - {paint_labor_high:,} Ft",
+            "data_source": "hardcoded_2025",
         })
         total_low += paint_material + paint_labor_low
         total_high += (paint_material + 50000) + paint_labor_high
@@ -1203,7 +1322,8 @@ async def handle_construction_planning(
                            "új elosztótábla, biztonsági földelés. Kötelező minimum.",
             "material_cost_range": f"{elec_delta:,} - {elec_delta:,} Ft",
             "labor_cost_range": "0 Ft (építési munkadíjban benne)",
-            "is_infrastructure_minimum": True,
+"is_infrastructure_minimum": True,
+            "data_source": "hardcoded_2025",
         })
         total_low += elec_delta
         total_high += elec_delta
@@ -1213,10 +1333,11 @@ async def handle_construction_planning(
             "step": max(p["step"] for p in phases) + 1 if phases else 1,
             "name": "Gáz/Fűtés alapinfrastruktúra (Gas/Heating Baseline)",
             "description": "Kéményvizsgálat, gázterv, kéménybélelés, "
-                           "fűtésrendszer tervezése. Kötelező minimum.",
+                            "fűtésrendszer tervezése. Kötelező minimum.",
             "material_cost_range": f"{gas_delta:,} - {gas_delta:,} Ft",
             "labor_cost_range": "0 Ft (építési munkadíjban benne)",
             "is_infrastructure_minimum": True,
+            "data_source": "hardcoded_2025",
         })
         total_low += gas_delta
         total_high += gas_delta
@@ -1241,6 +1362,7 @@ async def handle_construction_planning(
             ),
             "material_cost_range": f"{chim_cost_low:,} - {chim_cost_high:,} Ft",
             "labor_cost_range": "0 Ft (anyagköltségben benne)",
+            "data_source": "hardcoded_2025",
         })
         total_low += chim_cost_low
         total_high += chim_cost_high
@@ -1281,6 +1403,7 @@ async def handle_construction_planning(
             "material_cost_range": "0 Ft (anyagköltség a fő tételekben)",
             "labor_cost_range": f"{logistics_surcharge_low:,} - {logistics_surcharge_high:,} Ft",
             "is_infrastructure_minimum": True,
+            "data_source": "hardcoded_2025",
         })
         total_low += logistics_surcharge_low
         total_high += logistics_surcharge_high
@@ -1321,12 +1444,12 @@ async def handle_construction_planning(
     if is_full_renovation:
         hidden_chains.append(
             "Infrastrukturális minimumok: Teljes felújítás esetén az elektromos "
-            "szabványosítás (300k Ft) minden esetben kötelező."
+            f"szabványosítás ({elec_delta:,.0f} Ft pótlék) minden esetben kötelező."
         )
         if gas_heating:
             hidden_chains.append(
                 "Gáz/fűtés alapinfrastruktúra: Egyedi gázfűtés esetén a "
-                "kéményvizsgálat, gázterv és kéménybélelés (800k Ft) kötelező minimum."
+                f"kéményvizsgálat, gázterv és kéménybélelés ({gas_delta:,.0f} Ft pótlék) kötelező minimum."
             )
         if gas_heating:
             hidden_chains.append(
@@ -1378,6 +1501,50 @@ async def handle_construction_planning(
             .format(total_mid)
         )
 
+    # Build dynamic confidence score from the data_source mix
+    corpus_mid = sum(
+        c["estimate_huf"]["mid"] for c in categories.values()
+        if c.get("data_quality") in ("sufficient", "single_quote") and not c.get("fallback_used")
+    )
+    fallback_mid = sum(
+        c["estimate_huf"]["mid"] for c in categories.values()
+        if c.get("fallback_used")
+    )
+    hardcoded_mid = total_mid - corpus_mid - fallback_mid
+    if hardcoded_mid < 0:
+        hardcoded_mid = 0  # rounding safety
+
+    n_corpus = sum(1 for p in phases if p.get("data_source") == "corpus")
+    n_fallback = sum(1 for p in phases if p.get("data_source") == "corpus_fallback")
+    n_hardcoded = sum(1 for p in phases if p.get("data_source") == "hardcoded_2025")
+    n_total = n_corpus + n_fallback + n_hardcoded or 1
+    corpus_pct = corpus_mid / total_mid * 100 if total_mid else 0
+    fallback_pct = fallback_mid / total_mid * 100 if total_mid else 0
+    hardcoded_pct = hardcoded_mid / total_mid * 100 if total_mid else 0
+
+    base_score = 0.60  # baseline when 100% hardcoded
+    corpus_bonus = 0.25 * (corpus_mid / total_mid) if total_mid else 0
+    fallback_bonus = 0.10 * (fallback_mid / total_mid) if total_mid else 0
+    confidence_score = min(0.95, base_score + corpus_bonus + fallback_bonus)
+    if has_slag:
+        confidence_score = max(confidence_score - 0.05, 0.50)
+
+    reasoning_parts = []
+    if corpus_pct > 0:
+        reasoning_parts.append(
+            f"{n_corpus} of {n_total} phases ({corpus_pct:.0f}% of estimated cost) "
+            f"are based on real corpus data from similar renovations"
+        )
+    if fallback_pct > 0:
+        reasoning_parts.append(
+            f"{n_fallback} use corpus-informed fallback reference pricing ({fallback_pct:.0f}%)"
+        )
+    if hardcoded_pct > 0:
+        reasoning_parts.append(
+            f"the remainder ({hardcoded_pct:.0f}%) uses expert-sourced reference pricing"
+        )
+    confidence_reasoning = "; ".join(reasoning_parts) + "."
+
     return {
         "status": "ok",
         "data": {
@@ -1389,11 +1556,8 @@ async def handle_construction_planning(
             },
             "warnings": warnings,
             "confidence": {
-                "score": 0.85 if not has_slag else 0.80,
-                "reasoning": (
-                    "Construction plan based on area-scaled corpus averages, "
-                    "cascading dependency logic, and mandatory infrastructure minimums."
-                ),
+                "score": round(confidence_score, 3),
+                "reasoning": confidence_reasoning,
             },
             "vibe_diff": {
                 "explanation_hu": vibe_diff_hu,

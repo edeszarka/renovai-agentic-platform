@@ -609,3 +609,116 @@ async def test_include_breakdown_false_omits_categories():
     assert "categories" not in est
     assert "estimate_mid_huf" in est  # top-level still there
     await eng.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Item G — Tab 2 corpus wiring tests
+# ---------------------------------------------------------------------------
+
+class _FakePolicy_:
+    def check_structural(self, r, a, t):
+        return PolicyCheckResult(True, "ok", t, "structural")
+
+    async def check_semantic(self, a, t):
+        return PolicyCheckResult(True, "ok", t, "semantic")
+
+
+class _FakeRegistry_:
+    def load_instructions(self, n):
+        return ""
+
+
+@pytest.mark.asyncio
+async def test_construction_planning_has_data_source_on_all_phases():
+    from orchestrator.handlers import handle_construction_planning
+
+    params = {
+        "area_sqm": 55.0, "building_era": "1980", "renovation_scope": "full",
+        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
+        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
+                        "demolition": True, "ac": True},
+    }
+    result = await handle_construction_planning(
+        params, _FakePolicy_(), _FakeRegistry_(), "t1",
+    )
+    phases = result["data"]["phases"]
+    for p in phases:
+        assert "data_source" in p, f"missing data_source in {p['name']}"
+        assert p["data_source"] in ("corpus", "corpus_fallback", "hardcoded_2025")
+
+
+@pytest.mark.asyncio
+async def test_construction_planning_partial_different_confidence():
+    from orchestrator.handlers import handle_construction_planning
+
+    full_params = {
+        "area_sqm": 55.0, "building_era": "1980", "renovation_scope": "full",
+        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
+        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
+                        "demolition": True, "ac": True},
+    }
+    partial_params = {
+        "area_sqm": 55.0, "building_era": "9999", "renovation_scope": "partial",
+        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
+        "scope_flags": {"plumbing": True, "plastering": True},
+    }
+
+    full = await handle_construction_planning(full_params, _FakePolicy_(), _FakeRegistry_(), "t1")
+    partial = await handle_construction_planning(partial_params, _FakePolicy_(), _FakeRegistry_(), "t2")
+
+    assert full["data"]["confidence"]["reasoning"] != partial["data"]["confidence"]["reasoning"]
+    # Full should have corpus-derived confidence
+    assert "corpus" in full["data"]["confidence"]["reasoning"].lower()
+    assert full["data"]["confidence"]["score"] != partial["data"]["confidence"]["score"]
+
+
+@pytest.mark.asyncio
+async def test_windows_doors_insulation_fallback_values_similar_to_old_hardcoded():
+    from orchestrator.handlers import handle_construction_planning
+
+    params = {
+        "area_sqm": 55.0, "building_era": "1980", "renovation_scope": "full",
+        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
+        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
+                        "demolition": True, "windows_doors": True, "insulation": True},
+    }
+    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t3")
+    phases = {p["name"]: p for p in result["data"]["phases"]}
+
+    # Windows/doors should be corpus_fallback but have reasonable costs
+    wd = phases.get("Nyílászáró csere (Windows & Doors)")
+    assert wd is not None
+    assert wd["data_source"] == "corpus_fallback"
+    # Should be similar to old hardcoded: ~200k-400k per unit * 3 units = 600k-1.2M
+    ml, mh = map(lambda x: int(x.replace(",", "").replace(" Ft", "")),
+                 wd["material_cost_range"].split(" - "))
+    assert 100_000 < ml < 500_000
+
+    ins = phases.get("Szigetelés (Insulation)")
+    assert ins is not None
+    assert ins["data_source"] == "corpus_fallback"
+
+
+@pytest.mark.asyncio
+async def test_vibe_diff_infra_numbers_match_actual_deltas():
+    from orchestrator.handlers import handle_construction_planning
+
+    params = {
+        "area_sqm": 42.0, "building_era": "2005", "renovation_scope": "full",
+        "gas_heating": True, "floor_number": 1, "elevator_type": "small",
+        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
+                        "demolition": True},
+    }
+    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t4")
+    data = result["data"]
+
+    # vibe_diff hidden chains exist
+    vibe = data.get("vibe_diff", {})
+    chains = vibe.get("hidden_chains", [])
+    assert len(chains) > 0
+
+    # The infra text must use actual computed values, not hardcoded 300k/800k
+    infra_texts = [c for c in chains if "Infrastrukturális" in c or "Gáz/fűtés" in c]
+    for t in infra_texts:
+        assert "300k" not in t, f"hardcoded 300k in vibe_diff: {t}"
+        assert "800k" not in t, f"hardcoded 800k in vibe_diff: {t}"
