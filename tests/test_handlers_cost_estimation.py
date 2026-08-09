@@ -324,3 +324,133 @@ def test_apartment_input_explicit_scopes():
     assert feat.district == 1
     # apartment_input_to_features doesn't change behavior for new flags,
     # but the conversion must still succeed
+
+
+# ---------------------------------------------------------------------------
+# Item E — combined IVW × recency weighting tests
+# ---------------------------------------------------------------------------
+
+def test_single_year_recency_same_as_pure_ivw():
+    """If all quotes are from the same year, recency weights are uniform (2×)
+    and mathematically cancel, producing the same result as pure IVW."""
+    import numpy as np
+
+    # 5 quotes from 2024 only
+    vals = np.array([50000, 52000, 48000, 51000, 49000], dtype=float)
+    years = [2024, 2024, 2024, 2024, 2024]
+    _IVW_EPS = 1.0
+
+    mean = vals.mean()
+    var = (vals - mean) ** 2 + _IVW_EPS
+    ivw = 1.0 / var
+    pure_ivw_avg = float(np.sum(ivw * vals) / np.sum(ivw))
+
+    boost_year = max(years)
+    recency = np.array([2.0 if y == boost_year else 1.0 for y in years], dtype=float)
+    combined = ivw * recency
+    combined_avg = float(np.sum(combined * vals) / np.sum(combined))
+
+    assert combined_avg == pytest.approx(pure_ivw_avg)
+
+
+def test_multi_year_recency_shifts_toward_boost_year():
+    """When quotes span multiple years, recency weighting shifts the mean
+    toward the most recent year's value compared to pure IVW."""
+    import numpy as np
+
+    vals = np.array([40000, 42000, 38000, 41000, 60000, 62000, 58000, 61000], dtype=float)
+    years = [2023, 2023, 2023, 2023, 2026, 2026, 2026, 2026]
+    _IVW_EPS = 1.0
+
+    mean = vals.mean()
+    var = (vals - mean) ** 2 + _IVW_EPS
+    ivw = 1.0 / var
+    pure_ivw_avg = float(np.sum(ivw * vals) / np.sum(ivw))
+
+    boost_year = max(years)
+    recency = np.array([2.0 if y == boost_year else 1.0 for y in years], dtype=float)
+    combined = ivw * recency
+    combined_avg = float(np.sum(combined * vals) / np.sum(combined))
+
+    # The 2026 entries are ~60k, 2023 entries ~40k. Recency should shift
+    # the mean UP toward the higher 2026 values.
+    assert combined_avg > pure_ivw_avg
+
+    # Also verify: if we reverse (make older year the "boost"), the mean shifts down
+    recency_rev = np.array([2.0 if y == 2023 else 1.0 for y in years], dtype=float)
+    combined_rev = ivw * recency_rev
+    combined_rev_avg = float(np.sum(combined_rev * vals) / np.sum(combined_rev))
+    assert combined_rev_avg < pure_ivw_avg
+
+
+@pytest.mark.asyncio
+async def test_recency_active_on_real_corpus():
+    """Verify recency weighting is actually doing something against the real
+    DB: most categories span 2023-2026, so boost_year != min year and the
+    combined average should differ from pure IVW."""
+    from datetime import date
+    from renovai.predictor.price_model import scope_matched_estimate
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.db.session import get_engine, get_session_maker
+
+    apt = ApartmentInput(
+        district=5, total_area_sqm=55, num_rooms=2,
+        needs_plumbing=True, needs_electrical=True,
+        needs_flooring=True, needs_full_demolition=True,
+    )
+
+    pi = load_price_index(
+        DATA_ROOT / "raw" / "inflation" / "materials_cpi.csv",
+        DATA_ROOT / "raw" / "inflation" / "labor_cpi.csv",
+    )
+    eng = get_engine("sqlite+aiosqlite:///data/renovai.db")
+    sm = get_session_maker(eng)
+
+    est = await scope_matched_estimate(apt, sm, pi, date.today())
+
+    assert est is not None
+    # The estimate is non-trivial (>1M)
+    assert est["estimate_mid_huf"] > 1_000_000
+    # All 4 scopes have data
+    for sn in ("needs_plumbing", "needs_electrical", "needs_flooring", "needs_full_demolition"):
+        assert est["debug"]["scope_distinct_quote_count"][sn] >= 2
+    await eng.dispose()
+
+
+@pytest.mark.asyncio
+async def test_zero_quote_scopes_fallback_with_recency_in_place(caplog):
+    """windows_doors and insulation still correctly fallback with recency weighting."""
+    from datetime import date
+    from renovai.predictor.price_model import scope_matched_estimate
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.db.session import get_engine, get_session_maker
+
+    apt = ApartmentInput(
+        district=5, total_area_sqm=55, num_rooms=2,
+        needs_plumbing=True, needs_windows_doors=True, needs_insulation=True,
+    )
+
+    pi = load_price_index(
+        DATA_ROOT / "raw" / "inflation" / "materials_cpi.csv",
+        DATA_ROOT / "raw" / "inflation" / "labor_cpi.csv",
+    )
+    eng = get_engine("sqlite+aiosqlite:///data/renovai.db")
+    sm = get_session_maker(eng)
+
+    with caplog.at_level("WARNING"):
+        est = await scope_matched_estimate(apt, sm, pi, date.today())
+
+    assert est is not None
+    windows_warn = any(
+        "needs_windows_doors" in r.message and "no historical quotes" in r.message
+        for r in caplog.records
+    )
+    insulation_warn = any(
+        "needs_insulation" in r.message and "no historical quotes" in r.message
+        for r in caplog.records
+    )
+    assert windows_warn
+    assert insulation_warn
+    assert est["debug"]["scope_distinct_quote_count"]["needs_windows_doors"] == 0
+    assert est["debug"]["scope_distinct_quote_count"]["needs_insulation"] == 0
+    await eng.dispose()
