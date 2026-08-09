@@ -13,6 +13,38 @@ from .metadata_extractor import extract_metadata_from_notes
 
 logger = logging.getLogger(__name__)
 
+QUOTE_DATE_ASSUMPTION = (
+    "Quote dates are derived from the year-named folder under "
+    "data/raw/quotes/<year>/ and assumed to fall on Jan 1 of that "
+    "year, since no month-level data is available."
+)
+
+_VALID_QUOTE_YEARS = range(2015, 2027)
+
+def infer_quote_year_from_path(xlsx_path: Path) -> int:
+    """Extract the quote year from the immediate parent folder name.
+
+    E.g. data/raw/quotes/2022/foo.xlsx -> 2022.
+    Raises ValueError if the parent folder name isn't a plausible
+    4-digit year within the expected range.
+    """
+    parent_name = xlsx_path.parent.name
+    try:
+        year = int(parent_name)
+    except ValueError:
+        raise ValueError(
+            f"Quote parent folder '{parent_name}' is not a numeric year. "
+            f"Expected a 4-digit year folder under data/raw/quotes/ (e.g. data/raw/quotes/2022/). "
+            f"{QUOTE_DATE_ASSUMPTION}"
+        ) from None
+    if year not in _VALID_QUOTE_YEARS:
+        raise ValueError(
+            f"Quote year {year} from folder '{parent_name}' is outside the "
+            f"expected range ({_VALID_QUOTE_YEARS.start}-{_VALID_QUOTE_YEARS.stop - 1}). "
+            f"{QUOTE_DATE_ASSUMPTION}"
+        )
+    return year
+
 def parse_quote(xlsx_path: Path) -> RenovationQuote:
     """Parses an XLSX renovation quote into a RenovationQuote model."""
     try:
@@ -136,7 +168,7 @@ def parse_quote(xlsx_path: Path) -> RenovationQuote:
         street=addr_info["street"],
         house_number=addr_info["house_number"],
         floor=addr_info["floor"],
-        quote_date=date.fromtimestamp(xlsx_path.stat().st_mtime),
+        quote_date=date(infer_quote_year_from_path(xlsx_path), 1, 1),
         total_labor=total_labor,
         total_material=total_material,
         grand_total=grand_total,

@@ -17,6 +17,7 @@ def write_markdown(quote: RenovationQuote, output_path: Path) -> None:
     lines.append(f"district: {meta.district or 'Nincs'}")
     lines.append(f"postal_code: {meta.postal_code or 'Nincs'}")
     lines.append(f"quote_style: {quote.quote_style}")
+    lines.append(f"quote_date: {meta.quote_date or 'Ismeretlen'}")
     lines.append(f"grand_total_huf: {meta.grand_total}")
     lines.append(f"timeline: {meta.timeline_weeks_min or '?'}-{meta.timeline_weeks_max or '?'} hét")
     lines.append(f"start_date: {meta.start_date_approx or 'Nincs megadva'}")

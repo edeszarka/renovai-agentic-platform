@@ -45,12 +45,6 @@ CPI_LAST_DATE = date(2024, 12, 31)
 YEAR_FOLDERS = ["2023", "2024"]
 
 
-def infer_quote_date(file: Path) -> date:
-    """Use folder year (2023/2024) as quote date; mtime is unreliable (all 2026)."""
-    folder_year = int(file.parent.name)
-    return date(folder_year, 7, 1)
-
-
 async def get_existing_db_filenames(session_maker) -> set[str]:
     """Return set of file_names already in the database."""
     from sqlalchemy import select
@@ -172,17 +166,14 @@ async def async_main() -> None:
             raw_total = quote.metadata.grand_total
             folder_year = int(file.parent.name)
 
-            # ── Inflation adjust using inferred date (folder year) ──
-            inferred_date = infer_quote_date(file)
-            # Override quote_date (parser uses file mtime, which is 2026 — wrong)
-            quote.metadata.quote_date = inferred_date
-            adj = adjust_quote(quote, price_index, TARGET_DATE)  # from=inferred, to=2026
+            # Inflation adjust using quote_date from parse_quote (Jan 1 of folder year)
+            adj = adjust_quote(quote, price_index, TARGET_DATE)  # from=quote_date, to=2026
             adj_total = adj.grand_total_adjusted
             delta = adj.inflation_delta_pct
 
             # CPI note
             cpi_note = "CPI data ends 2024 Q4"
-            if inferred_date <= CPI_LAST_DATE:
+            if quote.metadata.quote_date and quote.metadata.quote_date <= CPI_LAST_DATE:
                 cpi_note = "full CPI interpolation"
 
             # ── Validate ──
@@ -362,9 +353,7 @@ def write_validation_test(results: list[tuple[str, list[str]]]) -> None:
         "    for f in ALL_NEW_QUOTES:",
         "        try:",
         "            folder_year = int(f.parent.name)",
-        "            inferred_date = date(folder_year, 7, 1)",
         "            q = parse_quote(f)",
-        "            q.metadata.quote_date = inferred_date",
         "            adj = adjust_quote(q, pi, date(2026, 7, 10))",
         "            if adj.grand_total_adjusted < adj.grand_total_original:",
         "                pct = (adj.grand_total_adjusted / adj.grand_total_original - 1) * 100",

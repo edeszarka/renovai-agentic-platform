@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import List
 from renovai.ingestion.inflation_models import CPIRecord, PriceIndex
 from renovai.ingestion.models import RenovationQuote, QuoteMetadata, LineItem
-from renovai.ingestion.inflation_calc import get_factor, adjust_quote, build_aggregated_index
+from renovai.ingestion.inflation_calc import get_factor, adjust_quote, build_aggregated_index, compound_inflation_factor, inflate_quote_value
 
 @pytest.fixture
 def sample_price_index() -> PriceIndex:
@@ -147,3 +147,34 @@ def test_adjust_quote(sample_price_index):
     # Delta %: (expected_grand_total - 500000) / 500000 * 100
     expected_delta_pct = round((expected_grand_total - 500000) / 500000 * 100, 2)
     assert pytest.approx(adjusted.inflation_delta_pct) == expected_delta_pct
+
+
+def test_compound_inflation_factor_basic(sample_price_index):
+    factor = compound_inflation_factor(2023, date(2024, 8, 15), sample_price_index, "materials")
+    assert factor > 1.0
+
+
+def test_compound_inflation_factor_current_year_near_one(sample_price_index):
+    factor = compound_inflation_factor(
+        date.today().year, date.today(), sample_price_index, "labor"
+    )
+    assert pytest.approx(factor, abs=0.01) == 1.0
+
+
+def test_compound_inflation_factor_before_data_clamps(sample_price_index, caplog):
+    with caplog.at_level(logging.WARNING):
+        factor = compound_inflation_factor(2022, date(2024, 2, 15), sample_price_index, "materials")
+    assert factor == pytest.approx(1.0 / 0.900, abs=0.01)
+    assert any("before earliest materials record" in r.message for r in caplog.records)
+
+
+def test_inflate_quote_value_applies_blend(sample_price_index):
+    factor_1 = inflate_quote_value(1.0, 2023, date(2024, 8, 15), sample_price_index)
+    val = inflate_quote_value(100000, 2023, date(2024, 8, 15), sample_price_index)
+    assert pytest.approx(val) == 100000 * factor_1
+    assert factor_1 > 1.0
+
+
+def test_inflate_quote_value_same_year_near_one(sample_price_index):
+    val = inflate_quote_value(50000, date.today().year, date.today(), sample_price_index)
+    assert pytest.approx(val, abs=500) == 50000

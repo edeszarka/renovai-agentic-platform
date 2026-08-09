@@ -209,3 +209,34 @@ def build_aggregated_index(
         "quote_summary": summary
     }
 
+def compound_inflation_factor(
+    quote_year: int,
+    target_date: date,
+    price_index: PriceIndex,
+    component: Literal["materials", "labor"],
+) -> float:
+    """Multiplicative factor converting HUF from Jan 1 of quote_year to target_date.
+
+    Delegates to the existing get_factor() with from_date=date(quote_year, 1, 1).
+    """
+    from_date = date(quote_year, 1, 1)
+    return get_factor(price_index, component, from_date, target_date)
+
+
+def inflate_quote_value(
+    value_huf: float,
+    quote_year: int,
+    target_date: date,
+    price_index: PriceIndex,
+) -> float:
+    """Inflate a raw HUF value from quote_year to target_date using blended CPI.
+
+    Applies a 55/45 labor/materials split consistent with the wider codebase
+    convention (handlers.py:313).
+    """
+    f_labor = compound_inflation_factor(quote_year, target_date, price_index, "labor")
+    f_materials = compound_inflation_factor(quote_year, target_date, price_index, "materials")
+    labor_share = 0.55
+    blended = labor_share * f_labor + (1.0 - labor_share) * f_materials
+    return value_huf * blended
+
