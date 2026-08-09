@@ -110,7 +110,11 @@ def parse_quote(xlsx_path: Path) -> RenovationQuote:
                 alternatives.append(item)
                 
         elif cr.row_type == "text_summary":
-            work_text = str(row[col_map.work_name]).strip()
+            work_text = (
+                str(row[col_map.work_name]).strip()
+                if col_map.work_name < len(row) and row[col_map.work_name] is not None
+                else ""
+            )
             summary = parse_text_summary_line(work_text)
             if summary:
                 grand_total_from_text[summary["component"]] = summary["value"]
@@ -126,7 +130,11 @@ def parse_quote(xlsx_path: Path) -> RenovationQuote:
                 pass
 
         # Collect strings for non-item sections
-        work_text = str(row[col_map.work_name]).strip() if row[col_map.work_name] is not None else ""
+        work_text = (
+            str(row[col_map.work_name]).strip()
+            if col_map.work_name < len(row) and row[col_map.work_name] is not None
+            else ""
+        )
         if work_text:
             if cr.section == "not_included" and cr.row_type != "section_header":
                 not_included.append(work_text)

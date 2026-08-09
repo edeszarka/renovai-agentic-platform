@@ -127,3 +127,22 @@ def test_parse_quote_uses_folder_year_not_mtime(tmp_path):
 
     quote = parse_quote(xlsx_path)
     assert quote.metadata.quote_date == date(2022, 1, 1)
+
+
+def test_parse_quote_handles_read_only_unpadded_trailing_rows():
+    """Regression: openpyxl read_only=True may return empty () tuples for
+    rows beyond actual content when sheet max_row is inflated (e.g. Google
+    Sheets exports). parse_quote must not crash with IndexError when
+    accessing col_map.work_name on an empty trailing row.
+
+    Uses the real Csalogány 2025 quote which triggered the bug — it has
+    max_row=1000 but only 93 real rows, producing 918 len=0 rows.
+    """
+    src = Path("data/raw/quotes/2025/1015 Csalogány utca 12. fsz majdnem komplett, 1930-as évek, van salak, 32nm.xlsx")
+    if not src.exists():
+        pytest.skip("Real 2025 Csalogány file not available")
+
+    quote = parse_quote(src)
+    assert len(quote.line_items) == 24
+    assert quote.metadata.grand_total == 7_401_955
+    assert quote.metadata.quote_date == date(2025, 1, 1)
