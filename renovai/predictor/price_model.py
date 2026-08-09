@@ -301,7 +301,6 @@ def find_similar_quotes(
     all_feats = []
 
     num_cols = [
-        "district",
         "num_line_items",
         "labor_to_material_ratio",
         "demolition_cost_share",

@@ -12,6 +12,7 @@ This test drives the full handler end-to-end with realistic params and
 asserts a real (sane) result comes back, not just a non-exception.
 """
 import os
+import json
 from datetime import date
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -19,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from orchestrator.policy_service import PolicyCheckResult
+from renovai.predictor.feature_extractor import apartment_input_to_features, ApartmentInput
 
 DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
@@ -101,3 +103,97 @@ async def test_handle_cost_estimation_completes_with_sane_estimate():
     # Similar quotes come back ranked (would have raised AttributeError before the fix)
     assert isinstance(data["similar_quotes"], list)
     assert data["similar_quotes"][0]["distance"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# Item H — district must not influence find_similar_quotes() ranking
+# ---------------------------------------------------------------------------
+
+def _write_quote(quotes_dir: Path, filename: str, district: int) -> Path:
+    data = {
+        "original_metadata": {
+            "file_name": filename,
+            "address_raw": f"Bp {district}",
+            "district": district,
+            "total_labor": 100,
+            "total_material": 100,
+            "grand_total": 200,
+        },
+        "target_date": "2024-06-01",
+        "line_items_adjusted": [
+            {
+                "original": {
+                    "name": "Bontás",
+                    "labor_cost": 60,
+                    "material_cost": 0,
+                    "total_cost": 60,
+                    "section": "Main",
+                    "version": 1,
+                    "notes": None,
+                },
+                "total_cost_adjusted": 60,
+                "labor_cost_adjusted": 60,
+                "material_cost_adjusted": 0,
+                "adjustment_factor_labor": 1.2,
+                "adjustment_factor_materials": 1.1,
+                "target_date": "2024-06-01",
+            },
+            {
+                "original": {
+                    "name": "Burkolás",
+                    "labor_cost": 50,
+                    "material_cost": 50,
+                    "total_cost": 100,
+                    "section": "Main",
+                    "version": 1,
+                    "notes": None,
+                },
+                "total_cost_adjusted": 115,
+                "labor_cost_adjusted": 60,
+                "material_cost_adjusted": 55,
+                "adjustment_factor_labor": 1.2,
+                "adjustment_factor_materials": 1.1,
+                "target_date": "2024-06-01",
+            },
+        ],
+        "grand_total_original": 150,
+        "grand_total_adjusted": 175,
+        "inflation_delta_pct": 16.67,
+    }
+    path = quotes_dir / filename
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    return path
+
+
+@pytest.fixture
+def similar_quotes_dir(tmp_path) -> Path:
+    # Two corpus quotes identical in every respect except district. If the
+    # district column still fed the Euclidean distance, the query target with
+    # a matching district would rank the same-district quote closer. With
+    # district dropped, relative distances (and so the ranking) become
+    # district-independent.
+    _write_quote(tmp_path, "q1_adjusted.json", district=1)
+    _write_quote(tmp_path, "q2_adjusted.json", district=11)
+    return tmp_path
+
+
+def _ranking(district: int, quotes_dir: Path) -> list[str]:
+    from renovai.predictor.price_model import find_similar_quotes
+
+    apt = ApartmentInput(
+        district=district,
+        total_area_sqm=50,
+        num_rooms=2,
+        needs_plumbing=True,
+        needs_full_demolition=True,
+    )
+    feat = apartment_input_to_features(apt)
+    similar = find_similar_quotes(feat, quotes_dir, top_k=3)
+    return [s["file"] for s in similar]
+
+
+def test_district_does_not_change_similarity_ranking(similar_quotes_dir):
+    ranking_2 = _ranking(2, similar_quotes_dir)
+    ranking_11 = _ranking(11, similar_quotes_dir)
+    assert ranking_2 == ranking_11
