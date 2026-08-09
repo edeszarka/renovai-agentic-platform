@@ -454,3 +454,158 @@ async def test_zero_quote_scopes_fallback_with_recency_in_place(caplog):
     assert est["debug"]["scope_distinct_quote_count"]["needs_windows_doors"] == 0
     assert est["debug"]["scope_distinct_quote_count"]["needs_insulation"] == 0
     await eng.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Item D — per-category return shape tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_categories_dict_covers_all_active_scopes():
+    """Every active user scope has an entry in the categories dict."""
+    from datetime import date
+    from renovai.predictor.price_model import scope_matched_estimate
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.db.session import get_engine, get_session_maker
+
+    apt = ApartmentInput(
+        district=5, total_area_sqm=55, num_rooms=2,
+        needs_plumbing=True, needs_electrical=True,
+        needs_flooring=True, needs_full_demolition=True,
+        needs_ac=True, needs_windows_doors=True, needs_insulation=True,
+    )
+
+    pi = load_price_index(
+        DATA_ROOT / "raw" / "inflation" / "materials_cpi.csv",
+        DATA_ROOT / "raw" / "inflation" / "labor_cpi.csv",
+    )
+    eng = get_engine("sqlite+aiosqlite:///data/renovai.db")
+    sm = get_session_maker(eng)
+
+    est = await scope_matched_estimate(apt, sm, pi, date.today())
+    assert est is not None
+    cats = est.get("categories", {})
+    assert "categories" in est
+
+    user_scopes = {"needs_plumbing", "needs_electrical", "needs_flooring",
+                   "needs_full_demolition", "needs_windows_doors",
+                   "needs_insulation", "needs_ac"}
+    for sn in user_scopes:
+        assert sn in cats, f"Missing {sn} from categories"
+        c = cats[sn]
+        assert c["scope"] == sn
+        assert isinstance(c["label_hu"], str)
+        assert isinstance(c["distinct_quote_count"], int)
+        assert isinstance(c["line_item_count"], int)
+        assert c["area_sqm"] == pytest.approx(55.0)
+        assert "low" in c["estimate_huf"]
+        assert "mid" in c["estimate_huf"]
+        assert "high" in c["estimate_huf"]
+
+    await eng.dispose()
+
+
+@pytest.mark.asyncio
+async def test_categories_estimate_sums_roughly_to_total():
+    """Per-category mid estimates should roughly sum to the total mid."""
+    from datetime import date
+    from renovai.predictor.price_model import scope_matched_estimate
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.db.session import get_engine, get_session_maker
+
+    apt = ApartmentInput(
+        district=5, total_area_sqm=55, num_rooms=2,
+        needs_plumbing=True, needs_electrical=True,
+        needs_flooring=True, needs_full_demolition=True,
+    )
+
+    pi = load_price_index(
+        DATA_ROOT / "raw" / "inflation" / "materials_cpi.csv",
+        DATA_ROOT / "raw" / "inflation" / "labor_cpi.csv",
+    )
+    eng = get_engine("sqlite+aiosqlite:///data/renovai.db")
+    sm = get_session_maker(eng)
+
+    est = await scope_matched_estimate(apt, sm, pi, date.today())
+    cats = est["categories"]
+
+    scope_total = sum(
+        cats[sn]["estimate_huf"]["mid"]
+        for sn in ("needs_plumbing", "needs_electrical", "needs_flooring", "needs_full_demolition")
+    )
+    expected_mid = est["estimate_mid_huf"] - 200_000  # contingency
+    ratio = scope_total / expected_mid
+    assert 0.95 <= ratio <= 1.05, (
+        f"Category mids sum to {scope_total:,}, expected ~{expected_mid:,} (ratio={ratio:.3f})"
+    )
+
+    await eng.dispose()
+
+
+@pytest.mark.asyncio
+async def test_data_quality_and_fallback_flags():
+    """needs_ac -> sufficient, needs_windows_doors/insulation -> no_corpus_data."""
+    from datetime import date
+    from renovai.predictor.price_model import scope_matched_estimate
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.db.session import get_engine, get_session_maker
+
+    apt = ApartmentInput(
+        district=5, total_area_sqm=55, num_rooms=2,
+        needs_plumbing=True, needs_ac=True,
+        needs_windows_doors=True, needs_insulation=True,
+    )
+
+    pi = load_price_index(
+        DATA_ROOT / "raw" / "inflation" / "materials_cpi.csv",
+        DATA_ROOT / "raw" / "inflation" / "labor_cpi.csv",
+    )
+    eng = get_engine("sqlite+aiosqlite:///data/renovai.db")
+    sm = get_session_maker(eng)
+
+    est = await scope_matched_estimate(apt, sm, pi, date.today())
+    cats = est["categories"]
+
+    assert cats["needs_ac"]["data_quality"] == "sufficient"
+    assert not cats["needs_ac"]["fallback_used"]
+    assert cats["needs_ac"]["boost_year"] is not None
+
+    assert cats["needs_windows_doors"]["data_quality"] == "no_corpus_data"
+    assert cats["needs_windows_doors"]["fallback_used"]
+
+    assert cats["needs_insulation"]["data_quality"] == "no_corpus_data"
+    assert cats["needs_insulation"]["fallback_used"]
+
+    # raw_per_sqm_huf is empty for 0-quote scopes
+    assert cats["needs_windows_doors"]["raw_per_sqm_huf"] == []
+    assert cats["needs_ac"]["raw_per_sqm_huf"] != []
+
+    await eng.dispose()
+
+
+@pytest.mark.asyncio
+async def test_include_breakdown_false_omits_categories():
+    """When include_breakdown=False, categories key is absent."""
+    from datetime import date
+    from renovai.predictor.price_model import scope_matched_estimate
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.db.session import get_engine, get_session_maker
+
+    apt = ApartmentInput(
+        district=5, total_area_sqm=55, num_rooms=2,
+        needs_plumbing=True,
+    )
+
+    pi = load_price_index(
+        DATA_ROOT / "raw" / "inflation" / "materials_cpi.csv",
+        DATA_ROOT / "raw" / "inflation" / "labor_cpi.csv",
+    )
+    eng = get_engine("sqlite+aiosqlite:///data/renovai.db")
+    sm = get_session_maker(eng)
+
+    est = await scope_matched_estimate(apt, sm, pi, date.today(),
+                                       include_breakdown=False)
+    assert est is not None
+    assert "categories" not in est
+    assert "estimate_mid_huf" in est  # top-level still there
+    await eng.dispose()
