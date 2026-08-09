@@ -38,6 +38,24 @@ SCOPE_CATEGORY_MAP: Dict[str, Dict[str, Any]] = {
         "label_en": "Demolition",
         "min_premium": 200_000,
     },
+    "needs_windows_doors": {
+        "keys": {"nyílászáró"},
+        "label_hu": "Nyílászáró csere",
+        "label_en": "Windows & Doors",
+        "min_premium": 400_000,
+    },
+    "needs_insulation": {
+        "keys": {"szigetelés"},
+        "label_hu": "Szigetelés",
+        "label_en": "Insulation",
+        "min_premium": 350_000,
+    },
+    "needs_ac": {
+        "keys": {"klíma"},
+        "label_hu": "Klíma szerelés",
+        "label_en": "AC Installation",
+        "min_premium": 300_000,
+    },
 }
 
 SCOPE_NAMES_ORDERED = [
@@ -45,6 +63,9 @@ SCOPE_NAMES_ORDERED = [
     "needs_electrical",
     "needs_flooring",
     "needs_full_demolition",
+    "needs_windows_doors",
+    "needs_insulation",
+    "needs_ac",
 ]
 
 REFERENCE_AREA_SQM = 55.0
@@ -72,6 +93,12 @@ def _get_user_scopes(apt: ApartmentInput) -> Set[str]:
         result.add("needs_flooring")
     if apt.needs_full_demolition:
         result.add("needs_full_demolition")
+    if apt.needs_windows_doors:
+        result.add("needs_windows_doors")
+    if apt.needs_insulation:
+        result.add("needs_insulation")
+    if apt.needs_ac:
+        result.add("needs_ac")
     return result
 
 
@@ -117,7 +144,11 @@ _monotonicity_cache: Dict[str, list] = {}
 
 
 def _cache_key(apt: ApartmentInput) -> str:
-    return f"p{apt.needs_plumbing}_e{apt.needs_electrical}_f{apt.needs_flooring}_d{apt.needs_full_demolition}"
+    return (
+        f"p{apt.needs_plumbing}_e{apt.needs_electrical}_f{apt.needs_flooring}"
+        f"_d{apt.needs_full_demolition}_w{apt.needs_windows_doors}"
+        f"_i{apt.needs_insulation}_a{apt.needs_ac}"
+    )
 
 
 def _check_monotonicity(
@@ -241,10 +272,16 @@ async def scope_matched_estimate(
             weights = 1.0 / variances
             scope_avg_per_sqm[scope_name] = float(np.sum(weights * arr) / np.sum(weights))
         else:
-            # Fallback: convert min_premium to per-sqm at reference area
             scope_avg_per_sqm[scope_name] = (
                 SCOPE_CATEGORY_MAP[scope_name]["min_premium"] / REFERENCE_AREA_SQM
             )
+            if scope_count[scope_name] == 0:
+                logger.warning(
+                    "Scope '%s': no historical quotes in corpus; "
+                    "using minimum premium floor (%d HUF)",
+                    scope_name,
+                    SCOPE_CATEGORY_MAP[scope_name]["min_premium"],
+                )
 
     # 4 — Estimate = fixed contingency + sum(scope_per_sqm * query_area)
     CONTINGENCY = 200_000  # fixed costs (permits, scaffolding, etc.)

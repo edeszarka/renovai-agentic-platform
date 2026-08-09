@@ -86,17 +86,30 @@ async def handle_cost_estimation(
         }
 
     try:
+        scope_flags = params.get("scope_flags", {})
+        renovation_scope = params.get("renovation_scope", "full")
+        is_full = renovation_scope == "full" or all(
+            scope_flags.get(k, False) for k in ("demolition", "electrical", "plumbing")
+        )
+
+        # Full renovation always includes AC
+        if is_full:
+            scope_flags.setdefault("ac", True)
+
         # Build apartment input
         apt = ApartmentInput(
             district=params.get("district", 1),
             total_area_sqm=params.get("area_sqm", 55.0),
             num_rooms=params.get("num_rooms", 2),
             building_era=params.get("building_era"),
-            needs_plumbing=params.get("scope_flags", {}).get("plumbing", False),
-            needs_electrical=params.get("scope_flags", {}).get("electrical", False),
-            needs_flooring=params.get("scope_flags", {}).get("flooring", False),
-            needs_full_demolition=params.get("scope_flags", {}).get("demolition", False),
-            suspected_slag=params.get("scope_flags", {}).get("slag", False),
+            needs_plumbing=scope_flags.get("plumbing", False),
+            needs_electrical=scope_flags.get("electrical", False),
+            needs_flooring=scope_flags.get("flooring", False),
+            needs_full_demolition=scope_flags.get("demolition", False),
+            needs_windows_doors=scope_flags.get("windows_doors", False),
+            needs_insulation=scope_flags.get("insulation", False),
+            needs_ac=scope_flags.get("ac", False),
+            suspected_slag=scope_flags.get("slag", False),
         )
 
         # Load price index
