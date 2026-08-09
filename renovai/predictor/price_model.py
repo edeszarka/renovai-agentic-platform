@@ -2,7 +2,7 @@ import logging
 import numpy as np
 from datetime import date
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Set
+from typing import List, Optional, Dict, Any, Set, Tuple
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -38,6 +38,24 @@ SCOPE_CATEGORY_MAP: Dict[str, Dict[str, Any]] = {
         "label_en": "Demolition",
         "min_premium": 200_000,
     },
+    "needs_windows_doors": {
+        "keys": {"nyílászáró"},
+        "label_hu": "Nyílászáró csere",
+        "label_en": "Windows & Doors",
+        "min_premium": 400_000,
+    },
+    "needs_insulation": {
+        "keys": {"szigetelés"},
+        "label_hu": "Szigetelés",
+        "label_en": "Insulation",
+        "min_premium": 350_000,
+    },
+    "needs_ac": {
+        "keys": {"klíma"},
+        "label_hu": "Klíma szerelés",
+        "label_en": "AC Installation",
+        "min_premium": 300_000,
+    },
 }
 
 SCOPE_NAMES_ORDERED = [
@@ -45,6 +63,9 @@ SCOPE_NAMES_ORDERED = [
     "needs_electrical",
     "needs_flooring",
     "needs_full_demolition",
+    "needs_windows_doors",
+    "needs_insulation",
+    "needs_ac",
 ]
 
 REFERENCE_AREA_SQM = 55.0
@@ -72,6 +93,12 @@ def _get_user_scopes(apt: ApartmentInput) -> Set[str]:
         result.add("needs_flooring")
     if apt.needs_full_demolition:
         result.add("needs_full_demolition")
+    if apt.needs_windows_doors:
+        result.add("needs_windows_doors")
+    if apt.needs_insulation:
+        result.add("needs_insulation")
+    if apt.needs_ac:
+        result.add("needs_ac")
     return result
 
 
@@ -117,7 +144,11 @@ _monotonicity_cache: Dict[str, list] = {}
 
 
 def _cache_key(apt: ApartmentInput) -> str:
-    return f"p{apt.needs_plumbing}_e{apt.needs_electrical}_f{apt.needs_flooring}_d{apt.needs_full_demolition}"
+    return (
+        f"p{apt.needs_plumbing}_e{apt.needs_electrical}_f{apt.needs_flooring}"
+        f"_d{apt.needs_full_demolition}_w{apt.needs_windows_doors}"
+        f"_i{apt.needs_insulation}_a{apt.needs_ac}"
+    )
 
 
 def _check_monotonicity(
@@ -161,6 +192,7 @@ async def scope_matched_estimate(
     session_maker,
     price_index: PriceIndex,
     target_date: date,
+    include_breakdown: bool = True,
 ) -> Optional[dict]:
     """Estimates renovation cost using price-per-m² normalization.
 
@@ -190,12 +222,14 @@ async def scope_matched_estimate(
     if num_user_scopes == 0:
         return None
 
-    # 2 — Aggregate per-quote scope costs, normalized by area and inflated to target_date
-    # scope_per_sqm[scope_name] = list of per-sqm costs across quotes
-    scope_per_sqm: Dict[str, List[float]] = {}
+    # 2 — Aggregate per-quote scope costs, normalized by area and inflated to target_date.
+    # Store (per_sqm_value, quote_year) pairs per scope; track raw line-item counts.
+    scope_entries: Dict[str, List[Tuple[float, int]]] = {}
+    scope_line_items: Dict[str, int] = {}
     infl_factors: List[float] = []
     for scope_name in SCOPE_NAMES_ORDERED:
-        scope_per_sqm[scope_name] = []
+        scope_entries[scope_name] = []
+        scope_line_items[scope_name] = 0
 
     for q in quotes:
         total = q.grand_total_adjusted_huf or q.grand_total_huf
@@ -204,7 +238,8 @@ async def scope_matched_estimate(
         area = q.area_sqm or REFERENCE_AREA_SQM
         if area <= 0:
             continue
-        # Group line items by scope for this quote
+        quote_year = q.quote_date.year if q.quote_date else 2024
+
         scope_line_total: Dict[str, int] = {}
         for li in q.line_items:
             if not li.total_cost_huf:
@@ -214,36 +249,70 @@ async def scope_matched_estimate(
                     scope_line_total[scope_name] = (
                         scope_line_total.get(scope_name, 0) + li.total_cost_huf
                     )
+                    scope_line_items[scope_name] += 1
                     break
-        # Per-quote inflation: inflate to target_date before averaging
-        quote_year = q.quote_date.year if q.quote_date else 2024
+
         f_blended = inflate_quote_value(1.0, quote_year, target_date, price_index)
         infl_factors.append(f_blended)
         for scope_name, cost_total in scope_line_total.items():
-            scope_per_sqm[scope_name].append(
-                inflate_quote_value(cost_total / area, quote_year, target_date, price_index)
-            )
+            scope_entries[scope_name].append((
+                inflate_quote_value(cost_total / area, quote_year, target_date, price_index),
+                quote_year,
+            ))
 
-    # 3 — Average per-sqm cost per scope using inverse-variance weighting.
-    # Each quote's weight = 1 / ((x_i - mean)^2 + eps), so quotes far from
-    # the category mean (outliers, partial-scope quotes) are downweighted
-    # automatically without a full Bayesian model.
-    _IVW_EPS = 1.0  # prevent division by zero when a quote lands on the mean
+    # 3 — Average per-sqm cost per scope using combined IVW × recency weighting.
+    # IVW: weight_i = 1 / ((x_i - mean)^2 + eps)  — downweights outliers
+    # Recency: boost_year = most recent year in this scope's data;
+    #   quotes from boost_year get 2× weight, others 1×
+    # Combined: combined_i = IVW_i × recency_i
+    # Weighted mean: Σ(combined_i · x_i) / Σ(combined_i)
+    # Edge case: if all quotes same year, recency is uniform (all 2×) →
+    #   mathematically identical to pure IVW (common factor cancels).
+    _IVW_EPS = 1.0
     scope_avg_per_sqm: Dict[str, float] = {}
-    scope_count: Dict[str, int] = {}
+    scope_distinct_quotes: Dict[str, int] = {}
+    scope_boost_year: Dict[str, Optional[int]] = {}
+    scope_combined_weights: Dict[str, List[float]] = {}
+    scope_fallback: Dict[str, bool] = {}
     for scope_name in SCOPE_NAMES_ORDERED:
-        vals = scope_per_sqm[scope_name]
-        scope_count[scope_name] = len(vals)
+        entries = scope_entries[scope_name]
+        scope_distinct_quotes[scope_name] = len(entries)
+        vals = np.array([e[0] for e in entries], dtype=float)
+        years = [e[1] for e in entries]
+        scope_boost_year[scope_name] = None
+
         if len(vals) >= 2:
-            arr = np.array(vals, dtype=float)
-            mean = arr.mean()
-            variances = (arr - mean) ** 2 + _IVW_EPS
-            weights = 1.0 / variances
-            scope_avg_per_sqm[scope_name] = float(np.sum(weights * arr) / np.sum(weights))
+            mean = vals.mean()
+            variances = (vals - mean) ** 2 + _IVW_EPS
+            ivw_weights = 1.0 / variances
+
+            boost_year = max(years)
+            scope_boost_year[scope_name] = boost_year
+            recency_weights = np.array(
+                [2.0 if y == boost_year else 1.0 for y in years], dtype=float
+            )
+            combined = ivw_weights * recency_weights
+            scope_combined_weights[scope_name] = list(float(w) for w in combined)
+            scope_avg_per_sqm[scope_name] = float(
+                np.sum(combined * vals) / np.sum(combined)
+            )
+            scope_fallback[scope_name] = False
+        elif len(vals) == 1:
+            scope_boost_year[scope_name] = entries[0][1]
+            scope_combined_weights[scope_name] = [1.0]
+            scope_avg_per_sqm[scope_name] = float(vals[0])
+            scope_fallback[scope_name] = True
         else:
-            # Fallback: convert min_premium to per-sqm at reference area
             scope_avg_per_sqm[scope_name] = (
                 SCOPE_CATEGORY_MAP[scope_name]["min_premium"] / REFERENCE_AREA_SQM
+            )
+            scope_combined_weights[scope_name] = []
+            scope_fallback[scope_name] = True
+            logger.warning(
+                "Scope '%s': no historical quotes in corpus; "
+                "using minimum premium floor (%d HUF)",
+                scope_name,
+                SCOPE_CATEGORY_MAP[scope_name]["min_premium"],
             )
 
     # 4 — Estimate = fixed contingency + sum(scope_per_sqm * query_area)
@@ -269,7 +338,45 @@ async def scope_matched_estimate(
             "count": len(infl_factors),
         }
 
-    # 6 — Return predict()-compatible dict (estimates already in target-date HUF)
+    # 6 — Build per-category breakdown (Item D) when requested
+    categories: Dict[str, Any] = {}
+    if include_breakdown:
+        for scope_name in SCOPE_NAMES_ORDERED:
+            _entries = scope_entries[scope_name]
+            raw_vals = [float(e[0]) for e in _entries]
+            raw_years = [e[1] for e in _entries]
+            dq = scope_distinct_quotes[scope_name]
+            if dq >= 2:
+                dq_label = "sufficient"
+            elif dq == 1:
+                dq_label = "single_quote"
+            else:
+                dq_label = "no_corpus_data"
+
+            scope_est_mid = int(scope_avg_per_sqm[scope_name] * query_area)
+            categories[scope_name] = {
+                "scope": scope_name,
+                "label_hu": SCOPE_CATEGORY_MAP[scope_name]["label_hu"],
+                "label_en": SCOPE_CATEGORY_MAP[scope_name]["label_en"],
+                "distinct_quote_count": dq,
+                "line_item_count": scope_line_items[scope_name],
+                "area_sqm": query_area,
+                "avg_per_sqm_huf": round(scope_avg_per_sqm[scope_name], 0),
+                "raw_per_sqm_huf": raw_vals,
+                "combined_weights": scope_combined_weights[scope_name],
+                "min_per_sqm_huf": round(float(min(raw_vals)), 0) if raw_vals else 0,
+                "max_per_sqm_huf": round(float(max(raw_vals)), 0) if raw_vals else 0,
+                "data_quality": dq_label,
+                "fallback_used": scope_fallback[scope_name],
+                "boost_year": scope_boost_year[scope_name],
+                "estimate_huf": {
+                    "low": int(scope_est_mid * 0.85),
+                    "mid": scope_est_mid,
+                    "high": int(scope_est_mid * 1.20),
+                },
+            }
+
+    # 7 — Return predict()-compatible dict (estimates already in target-date HUF)
     result = {
         "estimate_low_huf": int(estimate_mid * 0.85),
         "estimate_mid_huf": estimate_mid,
@@ -284,11 +391,14 @@ async def scope_matched_estimate(
             "contingency_huf": CONTINGENCY,
             "query_area_sqm": query_area,
             "scope_avg_per_sqm_huf": {k: round(v, 0) for k, v in scope_avg_per_sqm.items()},
-            "scope_line_item_count": scope_count,
+            "scope_distinct_quote_count": scope_distinct_quotes,
+            "scope_line_item_count": scope_line_items,
             "scope_total_per_sqm_huf": round(scope_total_per_sqm, 0),
             "price_per_sqm_huf": round((CONTINGENCY + scope_total_per_sqm * query_area) / query_area, 0) if query_area > 0 else 0,
         },
     }
+    if include_breakdown:
+        result["categories"] = categories
     return result
 
 
