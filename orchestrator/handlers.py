@@ -77,7 +77,7 @@ async def handle_cost_estimation(
     try:
         from renovai.predictor.price_model import scope_matched_estimate, find_similar_quotes
         from renovai.ingestion.inflation_calc import load_price_index
-        from renovai.predictor.feature_extractor import ApartmentInput
+        from renovai.predictor.feature_extractor import ApartmentInput, apartment_input_to_features
     except ImportError:
         return {
             "status": "error",
@@ -121,7 +121,7 @@ async def handle_cost_estimation(
 
         # Find similar quotes
         similar = find_similar_quotes(
-            apt, data_root / "processed" / "quotes_json", top_k=3,
+            apartment_input_to_features(apt), data_root / "processed" / "quotes_json", top_k=3,
         )
 
         warnings = []
