@@ -1072,28 +1072,27 @@ async def handle_construction_planning(
         total_labor_low += dw_lab_total_low
         total_labor_high += dw_lab_total_high
 
-    # Phase 2c: Windows / doors replacement — corpus-wired via needs_windows_doors
+    # Phase 2c: Windows / doors replacement — stays unit-count-based hardcoded.
+    # The SCOPE_CATEGORY_MAP fallback (min_premium / area) treats windows/doors
+    # as area-scaled, but window count scales with room count, not floor area.
+    # Revert to the old per-unit logic until real nyílászáró corpus data exists
+    # (post-re-tagging), at which point the corpus path would use per-sqm via
+    # needs_windows_doors in the categories dict.
     if is_full_renovation or scope.get("windows_doors", False):
-        wm_l, wm_h, wl_l, wl_h, wd_src = _phase_from_scope("needs_windows_doors")
-        if wm_l is not None:
-            win_mat_low, win_mat_high = wm_l, wm_h
-            win_lab_low, win_lab_high = wl_l, wl_h
-            num_units = max(1, int(area_sqm / 15))
-        else:
-            win_per_unit_low, win_per_unit_high = 200000, 400000
-            num_units = max(1, int(area_sqm / 15))
-            win_mat_low = win_per_unit_low * num_units
-            win_mat_high = win_per_unit_high * num_units
-            win_lab_low = 25000 * num_units
-            win_lab_high = 35000 * num_units
-            wd_src = "hardcoded_2025"
+        win_per_unit_low = 200000
+        win_per_unit_high = 400000
+        num_units = max(1, int(area_sqm / 15))
+        win_mat_low = win_per_unit_low * num_units
+        win_mat_high = win_per_unit_high * num_units
+        win_lab_low = 25000 * num_units
+        win_lab_high = 35000 * num_units
         phases.append({
             "step": max(p["step"] for p in phases) + 1 if phases else 1,
             "name": "Nyílászáró csere (Windows & Doors)",
             "description": f"Új ablakok ({num_units} db) és beltéri ajtók cseréje, tokok beépítése",
             "material_cost_range": f"{win_mat_low:,} - {win_mat_high:,} Ft",
             "labor_cost_range": f"{win_lab_low:,} - {win_lab_high:,} Ft",
-            "data_source": wd_src,
+            "data_source": "hardcoded_2025",
         })
         total_low += win_mat_low + win_lab_low
         total_high += win_mat_high + win_lab_high

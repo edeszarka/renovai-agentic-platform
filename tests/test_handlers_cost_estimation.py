@@ -685,14 +685,14 @@ async def test_windows_doors_insulation_fallback_values_similar_to_old_hardcoded
     result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t3")
     phases = {p["name"]: p for p in result["data"]["phases"]}
 
-    # Windows/doors should be corpus_fallback but have reasonable costs
+    # Windows/doors should be hardcoded_2025 (unit-based) with reasonable costs
     wd = phases.get("Nyílászáró csere (Windows & Doors)")
     assert wd is not None
-    assert wd["data_source"] == "corpus_fallback"
-    # Should be similar to old hardcoded: ~200k-400k per unit * 3 units = 600k-1.2M
+    assert wd["data_source"] == "hardcoded_2025"
+    # Old unit-based: 200k-400k per unit * 3 units = 600k-1.2M material
     ml, mh = map(lambda x: int(x.replace(",", "").replace(" Ft", "")),
                  wd["material_cost_range"].split(" - "))
-    assert 100_000 < ml < 500_000
+    assert 500_000 < ml < 700_000  # ~600k for 3 units
 
     ins = phases.get("Szigetelés (Insulation)")
     assert ins is not None
@@ -722,3 +722,85 @@ async def test_vibe_diff_infra_numbers_match_actual_deltas():
     for t in infra_texts:
         assert "300k" not in t, f"hardcoded 300k in vibe_diff: {t}"
         assert "800k" not in t, f"hardcoded 800k in vibe_diff: {t}"
+
+
+@pytest.mark.asyncio
+async def test_rough_in_aggregates_all_three_categories():
+    """The MEP phase must sum plumbing + electrical + AC from the categories dict."""
+    from datetime import date
+    from renovai.predictor.price_model import scope_matched_estimate
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.db.session import get_engine, get_session_maker
+
+    apt = ApartmentInput(
+        district=5, total_area_sqm=55, num_rooms=2,
+        needs_plumbing=True, needs_electrical=True, needs_ac=True,
+        needs_flooring=False, needs_full_demolition=False,
+    )
+    pi = load_price_index(
+        DATA_ROOT / "raw" / "inflation" / "materials_cpi.csv",
+        DATA_ROOT / "raw" / "inflation" / "labor_cpi.csv",
+    )
+    eng = get_engine("sqlite+aiosqlite:///data/renovai.db")
+    sm = get_session_maker(eng)
+    est = await scope_matched_estimate(apt, sm, pi, date.today())
+
+    categories = est["categories"]
+    p_mid = categories["needs_plumbing"]["estimate_huf"]["mid"]
+    e_mid = categories["needs_electrical"]["estimate_huf"]["mid"]
+    a_mid = categories["needs_ac"]["estimate_huf"]["mid"]
+    expected_sum = p_mid + e_mid + a_mid
+
+    # The construction planner's rough-in phase should equal this sum
+    # when only those 3 scopes are active (no heating, no other electrical add-ons)
+    from orchestrator.handlers import handle_construction_planning
+
+    params = {
+        "area_sqm": 55.0, "building_era": "2005", "renovation_scope": "partial",
+        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
+        "scope_flags": {"plumbing": True, "electrical": True, "ac": True,
+                        "demolition": False, "flooring": False, "plastering": False,
+                        "painting": False},
+    }
+    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t5")
+    phases = {p["name"]: p for p in result["data"]["phases"]}
+
+    rough_in = phases.get("Gépészet (Plumbing, Electrical, HVAC)")
+    assert rough_in is not None
+
+    def mid_from_range(mr, lr):
+        m_lo, m_hi = [int(x.replace(",","").replace(" Ft","")) for x in mr.split(" - ")]
+        l_lo, l_hi = [int(x.replace(",","").replace(" Ft","")) for x in lr.split(" - ")
+                      if "0 Ft" not in x]
+        return (m_lo + m_hi + l_lo + l_hi) // 2 if l_lo and l_hi else (m_lo + m_hi) // 2
+
+    rough_mid = mid_from_range(rough_in["material_cost_range"], rough_in["labor_cost_range"])
+
+    # The rough-in mid should be close to the sum of the 3 category mids
+    # (within rounding and 55/45 split approximation)
+    assert 0.85 * expected_sum <= rough_mid <= 1.15 * expected_sum, (
+        f"rough-in mid={rough_mid:,}, expected ~{expected_sum:,} "
+        f"(ratio={rough_mid/expected_sum:.3f})"
+    )
+    await eng.dispose()
+
+
+@pytest.mark.asyncio
+async def test_windows_doors_stays_unit_based_not_fallback():
+    """Windows/doors must use unit-count-based hardcoded logic, not corpus_fallback."""
+    from orchestrator.handlers import handle_construction_planning
+
+    params = {
+        "area_sqm": 55.0, "building_era": "2005", "renovation_scope": "partial",
+        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
+        "scope_flags": {"windows_doors": True, "demolition": False, "flooring": False,
+                        "plumbing": False, "electrical": False},
+    }
+    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t6")
+    phases = {p["name"]: p for p in result["data"]["phases"]}
+
+    wd = phases.get("Nyílászáró csere (Windows & Doors)")
+    assert wd is not None
+    assert wd["data_source"] == "hardcoded_2025", (
+        f"windows_doors should stay hardcoded_2025 (unit-based), got {wd['data_source']}"
+    )
