@@ -1,7 +1,40 @@
 import logging
+from datetime import date
 from typing import Dict, List, Tuple, Optional, Any
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Structural add-on inflation: these constants are dated to the 2025 expert
+# reference. They get their OWN inflation factor (2025 -> target_date),
+# separate from the per-quote corpus inflation, since they come from a
+# single dated expert source rather than dated corpus quotes.
+# ---------------------------------------------------------------------------
+
+_STRUCTURAL_SOURCE_YEAR = 2025
+
+
+def _structural_inflation_factor(target_date: date, price_index: Any) -> float:
+    """Blended CPI factor from Jan 1 2025 to target_date for structural add-ons.
+
+    Uses the same 55/45 labor/materials blend convention as the wider
+    codebase (inflation_calc.inflate_quote_value), treating 2025-01-01 as
+    the source date.
+    """
+    from ..ingestion.inflation_calc import compound_inflation_factor
+
+    f_labor = compound_inflation_factor(
+        _STRUCTURAL_SOURCE_YEAR, target_date, price_index, "labor"
+    )
+    f_materials = compound_inflation_factor(
+        _STRUCTURAL_SOURCE_YEAR, target_date, price_index, "materials"
+    )
+    labor_share = 0.55
+    return labor_share * f_labor + (1.0 - labor_share) * f_materials
+
+
+def _inflate_structural_value(value_huf: float, target_date: date, price_index: Any) -> int:
+    return int(round(value_huf * _structural_inflation_factor(target_date, price_index)))
 
 # ---------------------------------------------------------------------------
 # 1. Ceiling-height labor multiplier (painting, plastering, skimming only)
@@ -111,15 +144,28 @@ def detect_active_chains(
             active.append(rule)
     return active
 
-def chain_total_cost(active_chains: List[ChainEntry], area_sqm: float = 30.0) -> Dict[str, int]:
+def chain_total_cost(
+    active_chains: List[ChainEntry],
+    area_sqm: float = 30.0,
+    target_date: Optional[date] = None,
+    price_index: Any = None,
+) -> Dict[str, int]:
     """Compute total chain cost, area-scaled.
 
     Each chain's cost = base_cost + per_sqm_cost * area_sqm.
     At the reference area (30 m²) the result matches the original fixed figures.
+
+    Chain constants are dated to the 2025 expert reference; when target_date
+    and price_index are supplied the result is inflated 2025 -> target_date.
+    With either omitted the raw (undated) constant is returned unchanged.
     """
     low = sum(c["base_cost_low"] + c["per_sqm_cost_low"] * area_sqm for c in active_chains)
     high = sum(c["base_cost_high"] + c["per_sqm_cost_high"] * area_sqm for c in active_chains)
     point = sum(c["base_cost_point"] + c["per_sqm_cost_point"] * area_sqm for c in active_chains)
+    if target_date is not None and price_index is not None:
+        low = _inflate_structural_value(low, target_date, price_index)
+        high = _inflate_structural_value(high, target_date, price_index)
+        point = _inflate_structural_value(point, target_date, price_index)
     return {"low": int(low), "high": int(high), "point": int(point)}
 
 
@@ -138,32 +184,47 @@ def apply_infrastructure_minimums(
     base_estimate_high: int,
     is_full_renovation: bool,
     has_gas_heating: Optional[bool],
+    target_date: Optional[date] = None,
+    price_index: Any = None,
 ) -> Tuple[int, int, int, List[str]]:
-    """Apply minimum overrides. Returns (adjusted_low, adjusted_mid, adjusted_high, log_entries)."""
+    """Apply minimum overrides. Returns (adjusted_low, adjusted_mid, adjusted_high, log_entries).
+
+    The minimum constants are dated to the 2025 expert reference; when
+    target_date and price_index are supplied they are inflated 2025 ->
+    target_date at the point of consumption. With either omitted the raw
+    (undated) constants are used.
+    """
     logs: List[str] = []
     low, mid, high = base_estimate_low, base_estimate_mid, base_estimate_high
+
+    if target_date is not None and price_index is not None:
+        elec_min = _inflate_structural_value(ELECTRICAL_STANDARDIZATION_MINIMUM, target_date, price_index)
+        gas_min = _inflate_structural_value(GAS_HEATING_INFRA_MINIMUM, target_date, price_index)
+    else:
+        elec_min = ELECTRICAL_STANDARDIZATION_MINIMUM
+        gas_min = GAS_HEATING_INFRA_MINIMUM
 
     if not is_full_renovation:
         return (low, mid, high, logs)
 
     # Electrical standardization minimum
     electrical_share = int(mid * 0.12)
-    if electrical_share < ELECTRICAL_STANDARDIZATION_MINIMUM:
-        delta = ELECTRICAL_STANDARDIZATION_MINIMUM - electrical_share
+    if electrical_share < elec_min:
+        delta = elec_min - electrical_share
         low += delta
         mid += delta
         high += delta
-        logs.append(f"Electrical min override: {electrical_share:,} → {ELECTRICAL_STANDARDIZATION_MINIMUM:,} Ft")
+        logs.append(f"Electrical min override: {electrical_share:,} → {elec_min:,} Ft")
 
     # Gas/heating infrastructure minimum — only if gas heating is present
     if has_gas_heating:
         heating_share = int(mid * 0.20)
-        if heating_share < GAS_HEATING_INFRA_MINIMUM:
-            delta = GAS_HEATING_INFRA_MINIMUM - heating_share
+        if heating_share < gas_min:
+            delta = gas_min - heating_share
             low += delta
             mid += delta
             high += delta
-            logs.append(f"Gas/heating min override: {heating_share:,} → {GAS_HEATING_INFRA_MINIMUM:,} Ft")
+            logs.append(f"Gas/heating min override: {heating_share:,} → {gas_min:,} Ft")
 
     return (low, mid, high, logs)
 
@@ -208,6 +269,15 @@ def elevator_surcharge(
 CHIMNEY_TECHNICIAN_BASE = 80_000  # base cost
 CHIMNEY_TECHNICIAN_PER_FLOOR = 20_000  # per floor above ground
 
-def chimney_technician_cost(floor_number: Optional[int]) -> int:
+def chimney_technician_cost(
+    floor_number: Optional[int],
+    target_date: Optional[date] = None,
+    price_index: Any = None,
+) -> int:
     floors = max(1, floor_number or 1)
-    return CHIMNEY_TECHNICIAN_BASE + (floors - 1) * CHIMNEY_TECHNICIAN_PER_FLOOR
+    base = CHIMNEY_TECHNICIAN_BASE
+    per_floor = CHIMNEY_TECHNICIAN_PER_FLOOR
+    if target_date is not None and price_index is not None:
+        base = _inflate_structural_value(base, target_date, price_index)
+        per_floor = _inflate_structural_value(per_floor, target_date, price_index)
+    return base + (floors - 1) * per_floor

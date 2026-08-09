@@ -177,7 +177,10 @@ async def handle_cost_estimation(
 
         # 2 — Cascading cost chains (area-scaled: materials like EPS, concrete, flooring scale with m²)
         active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating)
-        chain_costs = chain_total_cost(active_chains, area_sqm=area_sqm)
+        chain_costs = chain_total_cost(
+            active_chains, area_sqm=area_sqm,
+            target_date=date.fromisoformat(target_date), price_index=price_index,
+        )
         chain_delta = chain_costs["point"]
         if chain_delta:
             base_low += int(chain_costs["low"] * 0.85)
@@ -191,6 +194,7 @@ async def handle_cost_estimation(
         )
         min_low, min_mid, min_high, min_logs = apply_infrastructure_minimums(
             base_low, base_mid, base_high, is_full, gas_heating,
+            target_date=date.fromisoformat(target_date), price_index=price_index,
         )
         infra_delta = min_mid - base_mid
         base_low, base_mid, base_high = min_low, min_mid, min_high
@@ -220,7 +224,12 @@ async def handle_cost_estimation(
         adjustments["elevator_surcharge_huf"] = elev_surcharge
 
         # 6 — Chimney technician (conditional, gas heating only)
-        chim_cost = chimney_technician_cost(floor_number) if gas_heating else 0
+        chim_cost = (
+            chimney_technician_cost(
+                floor_number,
+                target_date=date.fromisoformat(target_date), price_index=price_index,
+            ) if gas_heating else 0
+        )
         if chim_cost:
             base_low += int(chim_cost * 0.85)
             base_mid += chim_cost
@@ -745,6 +754,8 @@ async def handle_construction_planning(
     policy_service: Any,
     skill_registry: Any,
     trace_id: str,
+    target_date: date | None = None,
+    price_index: Any | None = None,
 ) -> dict[str, Any]:
     """
     Construction Planner handler — step-by-step renovation sequencing with
@@ -774,6 +785,20 @@ async def handle_construction_planning(
 
     # Progressive disclosure: load construction-planner skill
     instructions = skill_registry.load_instructions("construction-planner")
+
+    # Dated structural add-ons: 2025 expert-reference constants are inflated
+    # to target_date below (Item F). Default to today; load price_index the
+    # same way handle_cost_estimation() does when not already supplied.
+    if target_date is None:
+        target_date = date.today()
+    if price_index is None:
+        from renovai.ingestion.inflation_calc import load_price_index
+
+        data_root = Path(__file__).resolve().parent.parent / "data"
+        price_index = load_price_index(
+            data_root / "raw" / "inflation" / "materials_cpi.csv",
+            data_root / "raw" / "inflation" / "labor_cpi.csv",
+        )
 
     area_sqm = params.get("area_sqm", 55.0)
     scope = params.get("scope_flags", {})
@@ -861,7 +886,10 @@ async def handle_construction_planning(
 
     # Chain: Ajtó/Padló-lánc (triggers for pre-1970 + windows_doors/flooring)
     active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating)
-    chain_costs = chain_total_cost(active_chains, area_sqm=area_sqm)
+    chain_costs = chain_total_cost(
+        active_chains, area_sqm=area_sqm,
+        target_date=target_date, price_index=price_index,
+    )
     if chain_costs["point"]:
         chain = active_chains[0]
         phases.append({
@@ -1164,7 +1192,10 @@ async def handle_construction_planning(
 
     # Phase III: Chimney technician (conditional, gas heating only)
     if gas_heating:
-        chim_cost = chimney_technician_cost(floor_number)
+        chim_cost = chimney_technician_cost(
+            floor_number,
+            target_date=target_date, price_index=price_index,
+        )
         chim_cost_low = int(chim_cost * 0.85)
         chim_cost_high = int(chim_cost * 1.15)
         phases.append({
@@ -1265,7 +1296,7 @@ async def handle_construction_planning(
             hidden_chains.append(
                 f"Kéménytechnikai szakember: Egyedi gázfűtés miatt "
                 f"kéménytechnikai szakember bevonása szükséges "
-                f"(+{chimney_technician_cost(floor_number):,} Ft)."
+                f"(+{chimney_technician_cost(floor_number, target_date=target_date, price_index=price_index):,} Ft)."
             )
         hidden_chains.append(
             "Logisztikai pótlék: A sitt elszállítás és védelmi költségek a "

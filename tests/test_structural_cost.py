@@ -1,4 +1,7 @@
 import pytest
+from datetime import date
+from pathlib import Path
+
 from renovai.predictor.structural_cost import (
     ceiling_height_multiplier,
     apply_height_surcharge,
@@ -11,6 +14,12 @@ from renovai.predictor.structural_cost import (
     CHAIN_RULES,
     ELECTRICAL_STANDARDIZATION_MINIMUM,
     GAS_HEATING_INFRA_MINIMUM,
+    CHIMNEY_TECHNICIAN_BASE,
+    CHIMNEY_TECHNICIAN_PER_FLOOR,
+)
+from renovai.ingestion.inflation_calc import (
+    load_price_index,
+    compound_inflation_factor,
 )
 
 
@@ -227,3 +236,91 @@ class TestChimneyTechnician:
     def test_no_floor_number_defaults_to_one(self):
         cost = chimney_technician_cost(None)
         assert cost == 80_000  # defaults to floor 1
+
+
+DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
+SOURCE_DATE = date(2025, 1, 1)  # 2025 expert-reference date
+
+
+def _blended_factor(price_index, target_date: date) -> float:
+    """Expected manual 55/45 labor/materials blend for structural add-ons."""
+    f_lab = compound_inflation_factor(2025, target_date, price_index, "labor")
+    f_mat = compound_inflation_factor(2025, target_date, price_index, "materials")
+    return 0.55 * f_lab + 0.45 * f_mat
+
+
+@pytest.fixture(scope="module")
+def price_index():
+    mat_path = DATA_ROOT / "raw" / "inflation" / "materials_cpi.csv"
+    lab_path = DATA_ROOT / "raw" / "inflation" / "labor_cpi.csv"
+    assert mat_path.exists() and lab_path.exists(), (
+        "Real CPI files required for dated structural-add-on inflation tests"
+    )
+    return load_price_index(mat_path, lab_path)
+
+
+class TestDatedStructuralInflation:
+    """Item F: structural add-ons get their own 2025 -> today inflation."""
+
+    def test_infra_minimum_as_of_source_date_matches_undated(self, price_index):
+        low, mid, high = 100_000, 120_000, 150_000
+        res_low, res_mid, res_high, logs = apply_infrastructure_minimums(
+            low, mid, high, is_full_renovation=True, has_gas_heating=False,
+            target_date=SOURCE_DATE, price_index=price_index,
+        )
+        expected_elec_delta = ELECTRICAL_STANDARDIZATION_MINIMUM - int(mid * 0.12)
+        assert res_mid == mid + expected_elec_delta
+        assert any("Electrical min override" in log for log in logs)
+
+    def test_infra_minimum_inflated_today_vs_source(self, price_index):
+        low, mid, high = 100_000, 120_000, 150_000
+        _, today_mid, _, _ = apply_infrastructure_minimums(
+            low, mid, high, is_full_renovation=True, has_gas_heating=False,
+            target_date=date.today(), price_index=price_index,
+        )
+        _, source_mid, _, _ = apply_infrastructure_minimums(
+            low, mid, high, is_full_renovation=True, has_gas_heating=False,
+            target_date=SOURCE_DATE, price_index=price_index,
+        )
+        expected_factor = _blended_factor(price_index, date.today())
+        assert expected_factor > 1.0
+        # delta = inflated minimum - existing electrical share (12% of mid)
+        today_delta = today_mid - mid
+        source_delta = source_mid - mid
+        electrical_share = int(mid * 0.12)
+        assert today_delta == int(round(ELECTRICAL_STANDARDIZATION_MINIMUM * expected_factor)) - electrical_share
+        assert source_delta == ELECTRICAL_STANDARDIZATION_MINIMUM - electrical_share
+        assert today_mid > source_mid
+
+    def test_chain_cost_inflated_with_hand_computed_factor(self, price_index):
+        chains = detect_active_chains({"windows_doors": True}, "1950")
+        source_costs = chain_total_cost(
+            chains, area_sqm=30,
+            target_date=SOURCE_DATE, price_index=price_index,
+        )
+        today_costs = chain_total_cost(
+            chains, area_sqm=30,
+            target_date=date.today(), price_index=price_index,
+        )
+        expected_factor = _blended_factor(price_index, date.today())
+        assert expected_factor > 1.0
+        assert source_costs["point"] == 2_750_000  # undated at source date
+        assert today_costs["point"] == int(round(2_750_000 * expected_factor))
+        assert today_costs["point"] > source_costs["point"]
+
+    def test_chimney_inflated_with_hand_computed_factor(self, price_index):
+        expected_factor = _blended_factor(price_index, date.today())
+        assert expected_factor > 1.0
+        today_cost = chimney_technician_cost(3, target_date=date.today(), price_index=price_index)
+        source_cost = chimney_technician_cost(3, target_date=SOURCE_DATE, price_index=price_index)
+        expected = int(round(
+            (CHIMNEY_TECHNICIAN_BASE + 2 * CHIMNEY_TECHNICIAN_PER_FLOOR) * expected_factor
+        ))
+        assert source_cost == CHIMNEY_TECHNICIAN_BASE + 2 * CHIMNEY_TECHNICIAN_PER_FLOOR
+        assert today_cost == expected
+        assert today_cost > source_cost
+
+    def test_elevator_surcharge_not_inflated_undated_placeholder(self, price_index):
+        # ELEVATOR_SURCHARGE_PER_FLOOR is an undated placeholder constant;
+        # it must remain uninflated (no target_date/price_index consumption).
+        assert elevator_surcharge("none", 5) == 4 * 50_000
