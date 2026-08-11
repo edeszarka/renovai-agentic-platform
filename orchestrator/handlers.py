@@ -99,7 +99,9 @@ async def handle_cost_estimation(
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
     # Semantic gate on input params
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="cost_estimator", action="produce_estimate",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -393,7 +395,9 @@ async def handle_ingestion(
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="ingestion", action="spawn_sandbox",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -470,7 +474,9 @@ async def handle_market_analysis(
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="market_analyst", action="execute_sql",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -534,7 +540,9 @@ async def handle_due_diligence(
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="due_diligence", action="generate_advisory",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -689,7 +697,9 @@ async def handle_expert_interview(
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="expert_interviewer", action="assess_risk",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -904,7 +914,9 @@ async def handle_construction_planning(
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="construction_planner", action="generate_sequence",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 

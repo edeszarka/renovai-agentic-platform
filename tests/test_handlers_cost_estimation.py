@@ -37,7 +37,7 @@ class FakePolicyService:
     def check_structural(self, role: str, action: str, trace_id: str) -> PolicyCheckResult:
         return self._result
 
-    async def check_semantic(self, args: dict, trace_id: str):
+    async def check_semantic(self, args: dict, trace_id: str, **kwargs):
         return PolicyCheckResult(
             passed=True, reason="test-gate", trace_id=trace_id, check_type="semantic"
         )
@@ -619,7 +619,7 @@ class _FakePolicy_:
     def check_structural(self, r, a, t):
         return PolicyCheckResult(True, "ok", t, "structural")
 
-    async def check_semantic(self, a, t):
+    async def check_semantic(self, a, t, **kwargs):
         return PolicyCheckResult(True, "ok", t, "semantic")
 
 

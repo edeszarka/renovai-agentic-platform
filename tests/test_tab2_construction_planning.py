@@ -29,7 +29,7 @@ class _FakePolicy:
             passed=True, reason="ok", trace_id=trace_id, check_type="structural"
         )
 
-    async def check_semantic(self, args, trace_id):
+    async def check_semantic(self, args, trace_id, **kwargs):
         return PolicyCheckResult(
             passed=True, reason="ok", trace_id=trace_id, check_type="semantic"
         )
