@@ -20,7 +20,48 @@ from pathlib import Path
 from typing import Any
 from datetime import date
 
+from renovai.safety.green_team import GreenTeamService
+
 logger = logging.getLogger(__name__)
+
+
+async def _green_team_gate(
+    green_team_service: GreenTeamService,
+    trace_id: str,
+    user_intent: str,
+    proposed_action: str,
+    confidence: float,
+    semantic_risk: str,
+    proposed_response: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Run the Green Team human-in-the-loop gate for a handler result.
+
+    Evaluates the existing confidence / semantic-risk signals and returns the
+    payload to merge into the handler's response so the UI can render a
+    "needs review" state instead of a plain number.
+
+    Returns:
+        ``{"needs_intervention": bool}`` and, when intervention is required, a
+        nested ``"green_team"`` dict with the approval-request metadata
+        (request_id, risk_level, trigger_reason).
+    """
+    decision = await green_team_service.evaluate(
+        trace_id=trace_id,
+        user_intent=user_intent,
+        confidence=confidence,
+        proposed_action=proposed_action,
+        proposed_response=proposed_response,
+        semantic_risk=semantic_risk,
+    )
+    payload: dict[str, Any] = {"needs_intervention": decision.needs_intervention}
+    if decision.needs_intervention and decision.request is not None:
+        payload["green_team"] = {
+            "request_id": decision.request.request_id,
+            "risk_level": decision.request.risk_level,
+            "trigger_reason": decision.request.trigger_reason,
+        }
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +77,7 @@ async def handle_cost_estimation(
     policy_service: Any,
     skill_registry: Any,
     trace_id: str,
+    green_team_service: GreenTeamService | None = None,
 ) -> dict[str, Any]:
     """
     Cost Estimator handler.
@@ -48,7 +90,8 @@ async def handle_cost_estimation(
     Output contract:
       { "estimate_low_huf": int, "estimate_mid_huf": int,
         "estimate_high_huf": int, "inflation_adjusted_to": str,
-        "similar_quotes": [...], "warnings": [...] }
+        "similar_quotes": [...], "warnings": [...],
+        "needs_intervention": bool }
     """
     # Structural gate
     sr = policy_service.check_structural("cost_estimator", "produce_estimate", trace_id)
@@ -271,6 +314,34 @@ async def handle_cost_estimation(
             "estimate_high_huf": estimate.get("estimate_high_huf", 0),
         }
 
+        # --- Green Team human-in-the-loop gate --------------------------------
+        # Confidence reuses the existing data-scarcity signal the handler already
+        # produces (the "< 3 similar quotes" warning). This mirrors the legacy
+        # FastAPI model_confidence invariant ("high" when >= 3 similar quotes).
+        # The estimate numbers above are untouched; only gate metadata is added.
+        if green_team_service is None:
+            green_team_service = GreenTeamService()
+        num_similar = len(similar)
+        if num_similar >= 3:
+            model_confidence = 0.85
+        elif num_similar >= 1:
+            model_confidence = 0.60
+        else:
+            model_confidence = 0.45
+        _green_team = await _green_team_gate(
+            green_team_service,
+            trace_id=trace_id,
+            user_intent="cost_estimation",
+            proposed_action="produce_estimate",
+            confidence=model_confidence,
+            semantic_risk="low",
+            proposed_response={
+                "estimate_mid_huf": base_mid,
+                "num_similar_quotes": num_similar,
+                "warnings": warnings,
+            },
+        )
+
         return {
             "status": "ok",
             "data": {
@@ -288,6 +359,7 @@ async def handle_cost_estimation(
                     {"id": c["id"], "cost_point": c["base_cost_point"] + c["per_sqm_cost_point"] * area_sqm, "description": c["description"]}
                     for c in active_chains
                 ],
+                **_green_team,
             },
             "trace_id": trace_id,
         }
@@ -443,6 +515,7 @@ async def handle_due_diligence(
     policy_service: Any,
     skill_registry: Any,
     trace_id: str,
+    green_team_service: GreenTeamService | None = None,
 ) -> dict[str, Any]:
     """
     Due Diligence Advisor handler.
@@ -455,7 +528,7 @@ async def handle_due_diligence(
     Output contract:
       { "questions_for_seller": [...], "inspection_checklist": [...],
         "red_flags": [...], "overall_risk": str, "summary_hu": str,
-        "sources_cited": [...] }
+        "sources_cited": [...], "needs_intervention": bool }
     """
     sr = policy_service.check_structural("due_diligence", "generate_advisory", trace_id)
     if not sr.passed:
@@ -538,6 +611,24 @@ async def handle_due_diligence(
             gemini_config=gemini_config,
         )
 
+        # --- Green Team human-in-the-loop gate --------------------------------
+        # Reuse the existing semantic risk level (report.overall_risk); there is
+        # no confidence score in this path, so a neutral baseline confidence is
+        # passed and the risk level is the driving signal.
+        if green_team_service is None:
+            green_team_service = GreenTeamService()
+        _green_team = await _green_team_gate(
+            green_team_service,
+            trace_id=trace_id,
+            user_intent="due_diligence",
+            proposed_action="generate_advisory",
+            confidence=0.90,
+            semantic_risk={
+                "alacsony": "low", "közepes": "medium", "magas": "high",
+            }.get(report.overall_risk, "low"),
+            proposed_response={"overall_risk": report.overall_risk},
+        )
+
         return {
             "status": "ok",
             "data": {
@@ -553,6 +644,7 @@ async def handle_due_diligence(
                 "overall_risk": report.overall_risk,
                 "summary_hu": report.summary_hu,
                 "sources_cited": report.rag_sources_used,
+                **_green_team,
             },
             "trace_id": trace_id,
         }
@@ -575,6 +667,7 @@ async def handle_expert_interview(
     policy_service: Any,
     skill_registry: Any,
     trace_id: str,
+    green_team_service: GreenTeamService | None = None,
 ) -> dict[str, Any]:
     """
     Expert Interviewer handler — building-physics inspection and red-flag
@@ -589,7 +682,8 @@ async def handle_expert_interview(
     Output contract:
       { "red_flags": [...], "overall_risk": str, "summary_hu": str,
         "inspection_checklist": [...], "questions_for_seller": [...],
-        "recommended_experts": [...], "confidence": {...} }
+        "recommended_experts": [...], "confidence": {...},
+        "needs_intervention": bool }
     """
     sr = policy_service.check_structural("expert_interviewer", "assess_risk", trace_id)
     if not sr.passed:
@@ -739,6 +833,23 @@ async def handle_expert_interview(
         + ("A legkritikusabb: kohósalak a födémben." if has_slag else "")
     )
 
+    # --- Green Team human-in-the-loop gate --------------------------------
+    # Reuse the existing computed risk level (overall_risk) and confidence
+    # score already produced above.
+    if green_team_service is None:
+        green_team_service = GreenTeamService()
+    _green_team = await _green_team_gate(
+        green_team_service,
+        trace_id=trace_id,
+        user_intent="expert_interview",
+        proposed_action="assess_risk",
+        confidence=confidence_score,
+        semantic_risk={
+            "LOW": "low", "MEDIUM": "medium", "HIGH": "high", "CRITICAL": "critical",
+        }.get(overall_risk, "low"),
+        proposed_response={"overall_risk": overall_risk, "num_red_flags": num_red_flags},
+    )
+
     return {
         "status": "ok",
         "data": {
@@ -753,6 +864,7 @@ async def handle_expert_interview(
                 "score": confidence_score,
                 "reasoning": confidence_reasoning,
             },
+            **_green_team,
         },
         "trace_id": trace_id,
     }
