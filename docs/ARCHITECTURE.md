@@ -1,5 +1,38 @@
 # RenovAI Architecture
 
+## Canonical product path (current phase)
+
+> **`app/streamlit_app.py` + `orchestrator/handlers.py` is the canonical, live
+> product path for the current phase** — Streamlit-only, two tabs
+> ("Vevői Felkészítő" / buyer prep, "Felújítási Tervező" / renovation planner),
+> direct in-process calls through the orchestrator handlers. No MCP, no ADK,
+> no FastAPI. The Streamlit app drives the orchestrator handlers in-process
+> over the SemVer'd handler return contracts, and `policies.yaml` is enforced
+> via `orchestrator/policy_service.py`.
+
+Everything in this file describes the full past architecture. Treat the
+section below, "Legacy entry points", as the authority on what is *not* part of
+the current product. New work should extend the canonical path; none of the
+legacy entry points are maintained or deployed.
+
+## Legacy entry points (not part of the current product)
+
+Each of the following shipped in earlier phases but is **not** on the canonical
+path today. They live under `legacy/` (see `legacy/README.md`):
+
+- `renovai/api/main.py` — FastAPI REST/SSE surface built for an earlier,
+  deprecated cost-prediction path (`predict()`), superseded by
+  `scope_matched_estimate()`.
+- `app/agent.py` + `app/agent_runtime_app.py` — Vertex AI Agent Engine
+  (ADK) hosting shell for Cloud deployment; a course deliverable for
+  Vertex AI Agent Engine compatibility.
+- `orchestrator/agent.py` — the ADK-wrapped orchestrator agent used for the
+  MCP-first/ADK demo; superseded by direct handler calls from Streamlit.
+- `mcp_server/` — standalone MCP server (stdio/SSE) exposing the three tools
+  for external MCP clients; not used by the current Streamlit deploy.
+- root `Dockerfile` + `deployment/cloud_run/` — container deploy targets for
+  the ADK/FastAPI runtime; not used for the current Streamlit-only deploy.
+
 ## Problem statement
 
 First-time and lower-income apartment buyers in Hungary lack access to
