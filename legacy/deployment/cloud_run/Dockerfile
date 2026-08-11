@@ -44,4 +44,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 
 EXPOSE 8080
 
-CMD ["uvicorn", "renovai.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+CMD ["uvicorn", "legacy.renovai_api.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]

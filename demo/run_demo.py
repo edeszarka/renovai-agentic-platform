@@ -46,7 +46,7 @@ class MCPClient:
         self._proc: subprocess.Popen | None = None
 
     def __enter__(self):
-        server_path = str(Path(__file__).resolve().parent.parent / "mcp_server" / "server.py")
+        server_path = str(Path(__file__).resolve().parent.parent / "legacy" / "mcp_server" / "server.py")
         self._proc = subprocess.Popen(
             [sys.executable, server_path],
             stdin=subprocess.PIPE,

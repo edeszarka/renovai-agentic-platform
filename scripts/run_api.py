@@ -17,7 +17,7 @@ def main():
     print(f"Dokumentáció elérhető: http://{args.host}:{args.port}/docs\n")
     
     uvicorn.run(
-        "renovai.api.main:app",
+        "legacy.renovai_api.main:app",
         host=args.host,
         port=args.port,
         reload=args.reload,

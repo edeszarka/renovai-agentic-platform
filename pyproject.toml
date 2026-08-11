@@ -45,7 +45,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["renovai*", "mcp_server*", "sandbox*", "orchestrator*", "demo*"]
+include = ["renovai*", "sandbox*", "orchestrator*", "demo*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
