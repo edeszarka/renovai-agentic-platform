@@ -195,7 +195,7 @@ async def handle_cost_estimation(
             detect_active_chains, chain_total_cost,
             apply_infrastructure_minimums,
             compute_logistics_surcharge, elevator_surcharge,
-            chimney_technician_cost,
+            chimney_technician_cost, CostBreakdownOutput,
         )
 
         scope = params.get("scope_flags", {})
@@ -245,6 +245,18 @@ async def handle_cost_estimation(
             base_mid += chain_delta
             base_high += int(chain_costs["high"] * 1.20)
         adjustments["chain_cost_huf"] = chain_delta
+
+        # Pydantic guard: if the scope triggers a CHAIN_RULES entry but the
+        # chain was dropped from the breakdown, fail loudly instead of
+        # silently returning 0 for the structural cost.
+        CostBreakdownOutput(
+            chain_ids_applied=[c["id"] for c in active_chains],
+            chain_cost_huf=chain_costs["point"],
+            building_era=building_era,
+            scope=scope,
+            floor_number=floor_number,
+            gas_heating=gas_heating,
+        )
 
         # 3 — Infrastructure minimums
         is_full = renovation_scope == "full" or all(
@@ -1023,7 +1035,7 @@ async def handle_construction_planning(
         detect_active_chains, chain_total_cost,
         apply_infrastructure_minimums,
         compute_logistics_surcharge, elevator_surcharge,
-        chimney_technician_cost,
+        chimney_technician_cost, CostBreakdownOutput,
     )
 
     phases: list[dict] = []
@@ -1088,6 +1100,16 @@ async def handle_construction_planning(
     chain_costs = chain_total_cost(
         active_chains, area_sqm=area_sqm,
         target_date=target_date, price_index=price_index,
+    )
+    # Pydantic guard: fail loudly if a triggered chain is missing from the
+    # breakdown instead of silently returning 0.
+    CostBreakdownOutput(
+        chain_ids_applied=[c["id"] for c in active_chains],
+        chain_cost_huf=chain_costs["point"],
+        building_era=building_era,
+        scope=scope,
+        floor_number=floor_number,
+        gas_heating=gas_heating,
     )
     if chain_costs["point"]:
         chain = active_chains[0]

@@ -2,6 +2,8 @@ import logging
 from datetime import date
 from typing import Dict, List, Tuple, Optional, Any
 
+from pydantic import BaseModel, Field, model_validator
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -167,6 +169,73 @@ def chain_total_cost(
         high = _inflate_structural_value(high, target_date, price_index)
         point = _inflate_structural_value(point, target_date, price_index)
     return {"low": int(low), "high": int(high), "point": int(point)}
+
+
+# ---------------------------------------------------------------------------
+# 2b. Pydantic guard for the chain cost-breakdown output
+# ---------------------------------------------------------------------------
+
+class CostBreakdownOutput(BaseModel):
+    """Validated cost-breakdown output for the cascading chain rules.
+
+    Guards against the silent-0 bug: if the input scope matches a known
+    CHAIN_RULES trigger (e.g. building_era < 1970 AND flooring/windows_doors
+    in scope) but ``chain_ids_applied`` is empty, the model refuses to build
+    instead of silently returning a 0 cost.
+    """
+
+    chain_ids_applied: list[str] = Field(default_factory=list)
+    chain_cost_huf: int = Field(default=0)
+    # Input context the guard matches triggers against
+    building_era: str | None = None
+    scope: dict[str, bool] = Field(default_factory=dict)
+    floor_number: int | None = None
+    gas_heating: bool | None = None
+
+    @model_validator(mode="after")
+    def _require_triggered_chains_applied(self) -> "CostBreakdownOutput":
+        """Raise a clear ValidationError if a matching chain rule is missing."""
+        for rule in CHAIN_RULES:
+            if rule["trigger"](self.scope, self.building_era, self.floor_number, self.gas_heating):
+                if rule["id"] not in self.chain_ids_applied:
+                    raise ValueError(
+                        f"Chain '{rule['id']}' must be applied for the given scope: "
+                        f"building_era={self.building_era!r}, scope={self.scope}, "
+                        f"floor_number={self.floor_number}, gas_heating={self.gas_heating}. "
+                        "chain_ids_applied is empty/missing it, so the estimate would "
+                        "silently under-report structural cost. "
+                        f"Applicable chain steps: {' → '.join(rule['steps'])}"
+                    )
+        return self
+
+
+def build_chain_breakdown(
+    scope: Dict[str, bool],
+    building_era: Optional[str],
+    floor_number: Optional[int] = None,
+    gas_heating: Optional[bool] = None,
+    area_sqm: float = 30.0,
+    target_date: Optional[date] = None,
+    price_index: Any = None,
+) -> CostBreakdownOutput:
+    """Detect active chains, compute their cost, and return a validated output.
+
+    Uses the exact same trigger evaluation as detect_active_chains(); the
+    Pydantic validator re-checks the result so an omission fails loudly.
+    """
+    active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating)
+    costs = chain_total_cost(
+        active_chains, area_sqm=area_sqm,
+        target_date=target_date, price_index=price_index,
+    )
+    return CostBreakdownOutput(
+        chain_ids_applied=[c["id"] for c in active_chains],
+        chain_cost_huf=costs["point"],
+        building_era=building_era,
+        scope={k: bool(v) for k, v in scope.items()},
+        floor_number=floor_number,
+        gas_heating=bool(gas_heating) if gas_heating is not None else None,
+    )
 
 
 # ---------------------------------------------------------------------------
