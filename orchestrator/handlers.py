@@ -1008,7 +1008,9 @@ async def handle_construction_planning(
     # Material/labor split uses the codebase-standard 55/45 ratio.
     _LABOR_SHARE = 0.55
 
-    def _phase_from_scope(scope_name: str):
+    def _phase_from_scope(
+        scope_name: str,
+    ) -> tuple[int | None, int | None, int | None, int | None, str]:
         """Return (mat_low, mat_high, lab_low, lab_high, data_source) from corpus."""
         c = categories.get(scope_name, {})
         if not c or not c.get("estimate_huf"):

@@ -81,6 +81,7 @@ class PolicyService:
         policies_path: str | Path | None = None,
         audit_store: AuditStore | None = None,
     ):
+        """Build a PolicyService over policies.yaml, with an optional AuditStore."""
         self._engine = PolicyEngine.load(policies_path)
         self._pii_patterns: list[tuple[str, re.Pattern]] = self._compile_pii_patterns()
         # Lazy-loaded Gemini client for semantic checks
