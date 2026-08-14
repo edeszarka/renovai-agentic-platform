@@ -7,6 +7,8 @@ from scripts.backfill_building_taxonomy import (
     extract_building_era,
     extract_building_type,
     extract_floor_number,
+    extract_renovation_completeness,
+    extract_elevator_type,
     extract_taxonomy,
     apply_backfill,
     run,
@@ -110,6 +112,59 @@ class TestBuildingFloor:
         ]
         for stem, expected in cases:
             assert extract_floor_number(stem) == expected
+
+
+class TestRenovationCompleteness:
+    def test_komplett(self):
+        assert extract_renovation_completeness("1092 Ráday utca 5. 2 emelet, komplett, 1900-as évek, van salak, 83nm") == "komplett"
+
+    def test_reszleges(self):
+        assert extract_renovation_completeness("1065 Bajcsy-Zsilinszky út 19, 3. emelet, részleges, 1930-as évek, van salak, 80nm") == "reszleges"
+
+    def test_reszletes_es_komplett_counts_as_komplett(self):
+        assert extract_renovation_completeness("részletes és komplett, 1900-as évek, van salak, 47nm") == "komplett"
+
+    def test_majdnem_komplett_is_not_force_fit(self):
+        # Blend -> None: reported as "neither/unclear", not forced binary.
+        assert extract_renovation_completeness("1015 Csalogány utca 12. fsz majdnem komplett, 1930-as évek, van salak, 32nm") is None
+
+    def test_tobbnyire_komplett_is_not_force_fit(self):
+        assert extract_renovation_completeness("többnyire komplett, 1930-as évek, van salak, 48nm") is None
+
+    def test_no_clause(self):
+        assert extract_renovation_completeness("lakásfelújítás megjegyzések") is None
+
+    def test_case_insensitive_accented(self):
+        assert extract_renovation_completeness("RÉSZLEGES, 1970-es évek, nincs salak, 49nm") == "reszleges"
+
+
+class TestElevatorExtraction:
+    def test_conditional_lift_use_present(self):
+        # "ha lehet használni a liftet" presupposes a lift exists -> present.
+        body = "Ár: 1 200 000 Ft. Minden ár csak akkor érvényes, ha lehet használni a liftet az anyagszállításhoz."
+        assert extract_elevator_type(body) == "present"
+
+    def test_lifthasználat_present(self):
+        body = "Ha van lifthasználat, felvitel díja 0 Ft."
+        assert extract_elevator_type(body) == "present"
+
+    def test_interposed_words_present(self):
+        # Task 2C: the 1958-58nm file worded it "lehet anyagmozgatásra
+        # használni a liftet" — the generic lift-word rule catches it.
+        body = "Kb. 16 tonna ... Ez az ár akkor érvényes, ha végig lehet anyagmozgatásra használni a liftet."
+        assert extract_elevator_type(body) == "present"
+
+    def test_explicit_no_lift_none(self):
+        body = "A házban nincs lift, a felvitelt gyalog végezzük."
+        assert extract_elevator_type(body) == "none"
+
+    def test_no_mention_is_none(self):
+        body = "Komplett fürdőszoba felújítás, 80 nm."
+        assert extract_elevator_type(body) is None
+
+    def test_empty_body_none(self):
+        assert extract_elevator_type("") is None
+        assert extract_elevator_type(None) is None
 
 
 class TestExtractTaxonomy:
