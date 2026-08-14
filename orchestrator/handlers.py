@@ -202,6 +202,7 @@ async def handle_cost_estimation(
         scope = params.get("scope_flags", {})
         area_sqm = params.get("area_sqm", 55.0)
         building_era = params.get("building_era")
+        building_type = params.get("building_type")
         ceiling_height = params.get("ceiling_height")
         elevator_type = params.get("elevator_type")
         gas_heating = params.get("gas_heating", False)
@@ -235,7 +236,7 @@ async def handle_cost_estimation(
         adjustments["height_surcharge_huf"] = height_surcharge
 
         # 2 — Cascading cost chains (area-scaled: materials like EPS, concrete, flooring scale with m²)
-        active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating)
+        active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating, building_type)
         chain_costs = chain_total_cost(
             active_chains, area_sqm=area_sqm,
             target_date=date.fromisoformat(target_date), price_index=price_index,
@@ -257,6 +258,7 @@ async def handle_cost_estimation(
             scope=scope,
             floor_number=floor_number,
             gas_heating=gas_heating,
+            building_type=building_type,
         )
 
         # 3 — Infrastructure minimums
@@ -961,6 +963,7 @@ async def handle_construction_planning(
     elevator_type = params.get("elevator_type")
     gas_heating = params.get("gas_heating", False)
     floor_number = params.get("floor_number", 1)
+    building_type = params.get("building_type")
 
     has_shower = scope.get("built_in_shower", False)
     is_full_renovation = params.get("renovation_scope", "full") == "full"
@@ -1100,7 +1103,7 @@ async def handle_construction_planning(
         )
 
     # Chain: Ajtó/Padló-lánc (triggers for pre-1970 + windows_doors/flooring)
-    active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating)
+    active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating, building_type)
     chain_costs = chain_total_cost(
         active_chains, area_sqm=area_sqm,
         target_date=target_date, price_index=price_index,
@@ -1114,6 +1117,7 @@ async def handle_construction_planning(
         scope=scope,
         floor_number=floor_number,
         gas_heating=gas_heating,
+        building_type=building_type,
     )
     if chain_costs["point"]:
         chain = active_chains[0]

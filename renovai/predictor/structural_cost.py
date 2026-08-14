@@ -101,11 +101,54 @@ def _era_pre_1970(building_era: Optional[str]) -> bool:
     except (ValueError, TypeError):
         return False
 
+
+# ---------------------------------------------------------------------------
+# 2a. Doc 02 A/B/C branch selection (era + building_type)
+# ---------------------------------------------------------------------------
+# Source: 02_felujitasi_agrendszer_epulettipus_szerint.md (doc 02)
+#   A: 1970 előtt épült tégla                          (doc 02 §A)
+#   B: 1970–1990/95 tégla + tégla falazatú csúszózsalus (doc 02 §B)
+#   C: panel + 1960/70 után épült csúszózsalus (beton)  (doc 02 §C)
+# The branch matters to cost chains because A carries a 12–15 cm slag bed
+# under the floor, while B/C carry only 1–3 cm misung (doc 02 §A.3 vs §B.1/§C.1).
+# Cross-ref: FAZIS_A_FINDINGS.md §5 rows "Branch selection A/B/C by type+era".
+
+
+def _normalize_type(building_type: Optional[str]) -> str:
+    return (building_type or "").strip().lower()
+
+
+def _is_branch_a(building_type: Optional[str], building_era: Optional[str]) -> bool:
+    """Doc 02 branch A (pre-1970 tégla): full 12–15 cm slag chain applies."""
+    if _normalize_type(building_type) in ("panel", "csuszozsalus", "csúszózsalus"):
+        return False
+    return _era_pre_1970(building_era)
+
+
+def _is_branch_bc(building_type: Optional[str], building_era: Optional[str]) -> bool:
+    """Doc 02 branch B or C: 1–3 cm misung / aljzatkiegyenlítés only, no full slag."""
+    if _normalize_type(building_type) in ("panel", "csuszozsalus", "csúszózsalus"):
+        return True
+    if building_era is None or not str(building_era).strip().isdigit():
+        return False
+    try:
+        return int(building_era) >= 1970
+    except (ValueError, TypeError):
+        return False
+
+
+def _is_branch_c(building_type: Optional[str]) -> bool:
+    """Doc 02 branch C (panel / beton csúszózsalus): panel-specific constraints."""
+    return _normalize_type(building_type) in ("panel", "csuszozsalus", "csúszózsalus")
+
+
 CHAIN_RULES: List[ChainEntry] = [
     {
         "id": "ajto_padlo_lanc",
-        "trigger": lambda scope, era, floor, gas: (
-            _era_pre_1970(era)
+        # Doc 02 §A — branch A only. Guarded against B/C by type so the full-slag
+        # chain and the misung path below are mutually exclusive (never both fire).
+        "trigger": lambda scope, era, floor, gas, btype: (
+            _is_branch_a(btype, era)
             and (scope.get("windows_doors", False) or scope.get("flooring", False))
         ),
         "steps": [
@@ -129,7 +172,39 @@ CHAIN_RULES: List[ChainEntry] = [
             "során előkerülő kohósalak miatt szükséges teljes salakmentesítés, "
             "szigetelés és új aljzat kialakítása."
         ),
-        "note": "Expert-sourced figure (2.5-3.0M HUF at 30 m²). Scales with area for EPS, concrete, flooring.",
+        "note": "Expert-sourced figure (2.5-3.0M HUF at 30 m²). Scales with area for EPS, concrete, flooring. Doc 02 §A; FAZIS_A_FINDINGS.md §5 'Salak 12–15 cm (A) vs 1–3 cm misung (B/C)'.",
+    },
+    {
+        "id": "misung_subfloor_leveling",
+        # Doc 02 §B.2/§C.3 — branches B/C only: 1–3 cm aljzatkiegyenlítés with
+        # misung, as an alternative to the full-slag ajto_padlo_lanc. Mutually
+        # exclusive with that chain: _is_branch_bc() is the exact complement of
+        # _is_branch_a() for the same era/type inputs.
+        "trigger": lambda scope, era, floor, gas, btype: (
+            _is_branch_bc(btype, era)
+            and (scope.get("windows_doors", False) or scope.get("flooring", False))
+        ),
+        "steps": [
+            "Padlóburkolat/metlaki felszedés → 1–3 cm misung feltárul",
+            "Lecipelés és bontott anyag elszállítás",
+            "Padló felcsiszolása (kátrány/szőnyegragasztó eltávolítása)",
+            "Mélyalapozás",
+            "Aljzatkiegyenlítő kiöntése",
+        ],
+        # Area-scaled, calibrated against golden case subfloor_leveling_slag_vs_compound_003
+        # type2 (misung) totals 1.25–1.6M HUF at 55 m² → per-sqm ≈ 22.7–29.1k.
+        "base_cost_low": 0,
+        "per_sqm_cost_low": 22_000,
+        "base_cost_high": 0,
+        "per_sqm_cost_high": 29_000,
+        "base_cost_point": 0,
+        "per_sqm_cost_point": 25_500,
+        "description": (
+            "Misung/aljzatkiegyenlítés-lánc: 1970 utáni tégla, tégla falazatú "
+            "csúszózsalus és panel épületekben a padló alatt nincs 12–15 cm salak, "
+            "csak 1–3 cm misung — így csiszolás + kiegyenlítés, nem teljes betonozás."
+        ),
+        "note": "Doc 02 §B.2/§C.3; figures from golden case subfloor_leveling_slag_vs_compound_003 type2. FAZIS_A_FINDINGS.md §5 'Betonozás (A) vs 1–3 cm aljzatkiegyenlítés (B/C)'.",
     },
 ]
 
@@ -138,11 +213,12 @@ def detect_active_chains(
     building_era: Optional[str],
     floor_number: Optional[int] = None,
     gas_heating: Optional[bool] = None,
+    building_type: Optional[str] = None,
 ) -> List[ChainEntry]:
     """Return all chain rules whose trigger condition is met."""
     active = []
     for rule in CHAIN_RULES:
-        if rule["trigger"](scope, building_era, floor_number, gas_heating):
+        if rule["trigger"](scope, building_era, floor_number, gas_heating, building_type):
             active.append(rule)
     return active
 
@@ -191,17 +267,22 @@ class CostBreakdownOutput(BaseModel):
     scope: dict[str, bool] = Field(default_factory=dict)
     floor_number: int | None = None
     gas_heating: bool | None = None
+    building_type: str | None = None
 
     @model_validator(mode="after")
     def _require_triggered_chains_applied(self) -> "CostBreakdownOutput":
         """Raise a clear ValidationError if a matching chain rule is missing."""
         for rule in CHAIN_RULES:
-            if rule["trigger"](self.scope, self.building_era, self.floor_number, self.gas_heating):
+            if rule["trigger"](
+                self.scope, self.building_era, self.floor_number,
+                self.gas_heating, self.building_type,
+            ):
                 if rule["id"] not in self.chain_ids_applied:
                     raise ValueError(
                         f"Chain '{rule['id']}' must be applied for the given scope: "
                         f"building_era={self.building_era!r}, scope={self.scope}, "
-                        f"floor_number={self.floor_number}, gas_heating={self.gas_heating}. "
+                        f"floor_number={self.floor_number}, gas_heating={self.gas_heating}, "
+                        f"building_type={self.building_type!r}. "
                         "chain_ids_applied is empty/missing it, so the estimate would "
                         "silently under-report structural cost. "
                         f"Applicable chain steps: {' → '.join(rule['steps'])}"
@@ -214,6 +295,7 @@ def build_chain_breakdown(
     building_era: Optional[str],
     floor_number: Optional[int] = None,
     gas_heating: Optional[bool] = None,
+    building_type: Optional[str] = None,
     area_sqm: float = 30.0,
     target_date: Optional[date] = None,
     price_index: Any = None,
@@ -223,7 +305,9 @@ def build_chain_breakdown(
     Uses the exact same trigger evaluation as detect_active_chains(); the
     Pydantic validator re-checks the result so an omission fails loudly.
     """
-    active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating)
+    active_chains = detect_active_chains(
+        scope, building_era, floor_number, gas_heating, building_type,
+    )
     costs = chain_total_cost(
         active_chains, area_sqm=area_sqm,
         target_date=target_date, price_index=price_index,
@@ -235,6 +319,7 @@ def build_chain_breakdown(
         scope={k: bool(v) for k, v in scope.items()},
         floor_number=floor_number,
         gas_heating=bool(gas_heating) if gas_heating is not None else None,
+        building_type=building_type,
     )
 
 

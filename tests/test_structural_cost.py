@@ -90,10 +90,36 @@ class TestChainDetection:
         assert len(chains) == 1
         assert chains[0]["id"] == "ajto_padlo_lanc"
 
-    def test_post_1970_does_not_trigger_chain(self):
+    def test_post_1970_triggers_misung_chain(self):
         scope = {"windows_doors": True, "flooring": True}
         chains = detect_active_chains(scope, "1985")
-        assert len(chains) == 0
+        assert len(chains) == 1
+        assert chains[0]["id"] == "misung_subfloor_leveling"
+
+    def test_panel_triggers_misung_chain_even_pre_1970(self):
+        scope = {"windows_doors": True}
+        chains = detect_active_chains(scope, "1960", building_type="panel")
+        assert len(chains) == 1
+        assert chains[0]["id"] == "misung_subfloor_leveling"
+
+    def test_branch_a_bc_mutually_exclusive(self):
+        # Pre-1970 tégla → full slag chain only (branch A)
+        pre70 = detect_active_chains({"flooring": True}, "1960", building_type="tégla")
+        assert [c["id"] for c in pre70] == ["ajto_padlo_lanc"]
+        # Post-1970 tégla → misung only (branch B)
+        post70 = detect_active_chains({"flooring": True}, "1985", building_type="tégla")
+        assert [c["id"] for c in post70] == ["misung_subfloor_leveling"]
+        # Panel → misung only (branch C)
+        panel = detect_active_chains({"flooring": True}, "1975", building_type="panel")
+        assert [c["id"] for c in panel] == ["misung_subfloor_leveling"]
+
+    def test_misung_chain_cost_at_reference_area(self):
+        chains = detect_active_chains({"flooring": True}, "1985")
+        costs = chain_total_cost(chains, area_sqm=30)
+        # base 0 + per_sqm * 30
+        assert costs["low"] == 22_000 * 30
+        assert costs["high"] == 29_000 * 30
+        assert costs["point"] == 25_500 * 30
 
     def test_no_matching_scope_no_chain(self):
         scope = {"demolition": True, "plumbing": True}
@@ -132,17 +158,17 @@ class TestChainDetection:
         assert costs["point"] == 1_490_000
 
     def test_chain_rule_structure(self):
-        assert len(CHAIN_RULES) == 1
-        rule = CHAIN_RULES[0]
-        assert "trigger" in rule
-        assert "steps" in rule
-        # Area-scaled fields
-        assert "base_cost_point" in rule
-        assert "per_sqm_cost_point" in rule
-        assert "base_cost_low" in rule
-        assert "per_sqm_cost_low" in rule
-        assert "base_cost_high" in rule
-        assert "per_sqm_cost_high" in rule
+        assert len(CHAIN_RULES) == 2
+        for rule in CHAIN_RULES:
+            assert "trigger" in rule
+            assert "steps" in rule
+            # Area-scaled fields
+            assert "base_cost_point" in rule
+            assert "per_sqm_cost_point" in rule
+            assert "base_cost_low" in rule
+            assert "per_sqm_cost_low" in rule
+            assert "base_cost_high" in rule
+            assert "per_sqm_cost_high" in rule
 
 
 class TestInfrastructureMinimums:
