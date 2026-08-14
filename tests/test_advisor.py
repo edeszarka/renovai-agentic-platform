@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from renovai.advisor.pre_purchase import (
-    ApartmentProfile, ChecklistItem, AdvisoryReport, gather_advisory_context, generate_report
+    ApartmentProfile, ChecklistItem, AdvisoryReport, gather_advisory_context, generate_report, _era_label
 )
 from renovai.rag.gemini_client import GeminiConfig
 from renovai.advisor.report_renderer import render_report_md
@@ -18,7 +18,7 @@ def mock_profile():
         floor_area_sqm=55.0,
         num_rooms=2,
         building_type="tégla",
-        building_era_approx="1945_1970",
+        building_era_approx=1960,
         current_condition="közepes",
         known_issues=["régi ablakok"],
         has_seen_in_person=True,
@@ -124,3 +124,57 @@ def test_generate_report_end_to_end(mock_gather, mock_similar, mock_predict, moc
     assert report.summary_hu == "Summary"
     assert len(report.questions_for_seller) == 1
     assert report.overall_risk == "közepes" # because 1 flag/question and no kritikus
+
+def test_era_label_maps_canonical_int_year_to_band():
+    assert _era_label(1930) == "1945 előtt"
+    assert _era_label(1960) == "1945 és 1970 között"
+    assert _era_label(1980) == "1970 és 1990 között"
+    assert _era_label(2000) == "1990 és 2010 között"
+    assert _era_label(2015) == "2010 után"
+    assert _era_label(None) == "ismeretlen"
+
+@patch("renovai.advisor.pre_purchase.genai.Client")
+@patch("renovai.advisor.pre_purchase.predict")
+@patch("renovai.advisor.pre_purchase.find_similar_quotes")
+@patch("renovai.advisor.pre_purchase.gather_advisory_context")
+def test_generate_report_flows_int_era_into_price_features(
+    mock_gather, mock_similar, mock_predict, mock_client_class
+):
+    """End-to-end: an ApartmentProfile with a canonical int era must reach
+    ApartmentInput.building_era (and thus the price features) as an int, and
+    never be dropped or replaced by a band-key string."""
+    mock_gather.return_value = ("Context", ["f1.md"])
+    mock_similar.return_value = []
+    mock_predict.return_value = {
+        "estimate_low_huf": 1, "estimate_mid_huf": 2, "estimate_high_huf": 3,
+        "inflation_adjusted_to": "2024",
+    }
+
+    mock_client = mock_client_class.return_value
+    mock_resp_json = MagicMock()
+    mock_resp_json.text = json.dumps({"questions": [], "inspection": [], "red_flags": []})
+    mock_resp_sum = MagicMock()
+    mock_resp_sum.text = "Summary"
+    mock_client.models.generate_content.side_effect = [mock_resp_json, mock_resp_sum]
+
+    profile = ApartmentProfile(
+        address_district=11,
+        floor_area_sqm=55.0,
+        num_rooms=2,
+        building_type="tégla",
+        building_era_approx=1960,
+        current_condition="közepes",
+        known_issues=[],
+        has_seen_in_person=True,
+        asking_price_million_huf=None,
+    )
+
+    report = generate_report(
+        profile, MagicMock(), Path("models"), MagicMock(),
+        GeminiConfig(api_key="k", model_name="m"),
+    )
+
+    assert mock_predict.called, "price predictor should be invoked"
+    feat_arg = mock_predict.call_args[0][0]
+    assert feat_arg.building_era == 1960
+    assert report.apartment_profile.building_era_approx == 1960

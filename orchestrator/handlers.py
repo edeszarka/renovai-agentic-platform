@@ -586,7 +586,7 @@ async def handle_due_diligence(
             floor_area_sqm=params.get("area_sqm", 55.0),
             num_rooms=params.get("num_rooms", 2),
             building_type=params.get("building_type", "tégla"),
-            building_era_approx=params.get("building_era", "1960_1990"),
+            building_era_approx=params.get("building_era", 1975),
             current_condition=params.get("condition", "közepes"),
             known_issues=params.get("known_issues", []),
             has_seen_in_person=params.get("has_seen_in_person", False),

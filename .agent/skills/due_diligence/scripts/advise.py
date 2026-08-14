@@ -52,6 +52,7 @@ def run(
         floor_area_sqm=area_sqm,
         num_rooms=0,
         building_type=building_type,
+        building_era_approx=None,
         current_condition=condition,
         known_issues=known_issues,
         has_seen_in_person=False,

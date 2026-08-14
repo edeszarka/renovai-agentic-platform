@@ -23,9 +23,7 @@ class ApartmentProfile(BaseModel):
     floor_area_sqm: float
     num_rooms: int
     building_type: Literal["panel", "tégla", "újépítés", "ismeretlen"]
-    building_era_approx: Optional[Literal[
-        "1945_előtt", "1945_1970", "1970_1990", "1990_2010", "2010_után"
-    ]]
+    building_era_approx: Optional[int]  # canonical representative year (e.g. 1960), not a band key
     current_condition: Literal[
         "nagyon_rossz",     # everything needs replacing
         "közepes",          # partially renovated
@@ -68,12 +66,21 @@ ADVISORY_QUERY_TEMPLATES = [
 ]
 
 ERA_MAP = {
-    "1945_előtt": "1945 előtt",
-    "1945_1970": "1945 és 1970 között",
-    "1970_1990": "1970 és 1990 között",
-    "1990_2010": "1990 és 2010 között",
-    "2010_után": "2010 után"
+    1930: "1945 előtt",
+    1960: "1945 és 1970 között",
+    1980: "1970 és 1990 között",
+    2000: "1990 és 2010 között",
+    2015: "2010 után"
 }
+
+def _era_label(era: Optional[int]) -> str:
+    """Map a canonical representative year to a human-readable era band."""
+    if era is None:
+        return "ismeretlen"
+    for threshold in (1930, 1960, 1980, 2000, 2015):
+        if era <= threshold:
+            return ERA_MAP[threshold]
+    return ERA_MAP[2015]
 
 CONDITION_MAP = {
     "nagyon_rossz": "nagyon rossz (felújítandó)",
@@ -88,7 +95,7 @@ def gather_advisory_context(
     """Runs multiple RAG queries and aggregates context."""
     all_chunks = {}
     
-    era_str = ERA_MAP.get(profile.building_era_approx or "ismeretlen", "ismeretlen")
+    era_str = _era_label(profile.building_era_approx)
     cond_str = CONDITION_MAP.get(profile.current_condition, "ismeretlen")
     
     for template in ADVISORY_QUERY_TEMPLATES:
@@ -145,7 +152,7 @@ def generate_report(
     rag_context, rag_sources = gather_advisory_context(profile, rag_pipeline)
     
     # 2. Apartment Summary
-    era_str = ERA_MAP.get(profile.building_era_approx or "ismeretlen", "ismeretlen")
+    era_str = _era_label(profile.building_era_approx)
     cond_str = CONDITION_MAP.get(profile.current_condition, "ismeretlen")
     summary = (
         f"Ingatlan: {profile.floor_area_sqm} m2, {profile.num_rooms} szoba, "
@@ -228,7 +235,7 @@ Every item in all three lists MUST include these exact keys: 'category' (string)
         district=profile.address_district,
         total_area_sqm=profile.floor_area_sqm,
         num_rooms=profile.num_rooms,
-        building_era=None,
+        building_era=profile.building_era_approx,
         needs_plumbing=True,
         needs_electrical=True,
         needs_flooring=True,
