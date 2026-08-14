@@ -4,11 +4,12 @@ Reads the canonical markdown corpus under data/processed/quotes_md/ (one file
 per quote, named identically to the source xlsx) and extracts the building
 taxonomy from each filename + front-matter ``source:``:
 
-* ``building_type``  — only an explicit type token (panel, családi ház,
-  csúszózsalus, könnyűszerkezetes, vályog, tégla) is honored; ambiguous /
-  absent signals are stored as NULL. Free text is intentionally NOT scanned:
-  survey of the 47-file corpus showed product terms (fűtéspanel, üvegtégla,
-  porotherm, Ytong) that would be false positives.
+* ``building_type``  — Task 2.5 rule: ``panel`` -> PANEL, ``családi ház``
+  -> TEGLA_CSALADI_HAZ, otherwise TEGLA when the text matches the corpus
+  filename grammar (an era/salak clause is present); only text that does
+  NOT look like a corpus filename stays NULL. Free text is intentionally
+  NOT scanned for product terms (fűtéspanel, üvegtégla, porotherm, Ytong)
+  that would be false positives. VÁLYOG is removed from the taxonomy.
 * ``building_era``    — canonical representative year (int). Decades map to
   their midpoint (1970-es évek -> 1975); explicit years are kept verbatim
   (1958, 2011, kb. 2005 -> 2005).
@@ -95,20 +96,50 @@ def extract_building_era(text: str) -> Optional[int]:
 
 
 def extract_building_type(text: str) -> Optional[BuildingType]:
-    """Return BuildingType when the filename names it explicitly, else None."""
+    """Classify building type from a corpus filename / front-matter source.
+
+    Task 2.5 explicit rule (derived from the Task A filename grammar):
+      * ``panel`` (word-bounded, case/accent-insensitive)  -> PANEL
+      * ``családi ház`` (clear textual evidence on one corpus file)
+                                                          -> TEGLA_CSALADI_HAZ
+      * otherwise, when the text matches the corpus grammar (an era clause
+        is present — 47/47 corpus files carry one)         -> TEGLA (default)
+      * text that does NOT look like a corpus filename      -> None
+
+    VÁLYOG is not a valid value in this pass (removed from the taxonomy).
+    Word-boundary matching keeps product terms (fűtéspanel) from counting
+    as building types; "Téglási" (a street name) is not a tégla trigger —
+    it classifies via the default only.
+    """
     low = text.lower()
-    if re.search(r"\bcsúszózsalus\b", low) or re.search(r"\bcsuszozsalus\b", low):
-        return BuildingType.CSUSZOZSALUS
-    if re.search(r"\bkönnyűszerkezetes\b", low) or re.search(r"\bkonnyuszerkezetes\b", low):
-        return BuildingType.KONNYUSZERKEZETES
-    if re.search(r"\bcsaládi\s*ház\b", low):
-        return BuildingType.TEGLA_CSALADI_HAZ
-    if re.search(r"\bvályog\b", low):
-        return BuildingType.VALYOG_VEGYES
     if re.search(r"\bpanel\b", low):
         return BuildingType.PANEL
-    if re.search(r"\btégla\b", low):
+    if re.search(r"\bcsaládi\s*ház\b", low):
+        return BuildingType.TEGLA_CSALADI_HAZ
+    if extract_building_era(text) is not None or re.search(r"\bsalak\b", low):
         return BuildingType.TEGLA
+    return None
+
+
+_FLOOR_GROUND_RE = re.compile(r"\b(?:fsz|fszt|földszint)\b")
+_FLOOR_NUM_RE = re.compile(r"\b(\d{1,2})\s*\.?\s*(?:emelet|em)\b")
+
+
+def extract_floor_number(text: str) -> Optional[int]:
+    """Return floor number from a corpus filename.
+
+    ``fsz`` / ``fszt`` / ``földszint`` (ground floor) -> 1; ``N. emelet`` /
+    ``N emelet`` -> N. Convention: floor 1 = ground floor, matching the rest
+    of the codebase (``structural_cost.elevator_surcharge`` treats
+    ``floor_number = 1`` as no-floors-above-ground, and the streamlit UI's
+    minimum is 1).
+    """
+    low = text.lower()
+    if _FLOOR_GROUND_RE.search(low):
+        return 1
+    m = _FLOOR_NUM_RE.search(low)
+    if m:
+        return int(m.group(1))
     return None
 
 

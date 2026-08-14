@@ -6,6 +6,7 @@ from pathlib import Path
 from scripts.backfill_building_taxonomy import (
     extract_building_era,
     extract_building_type,
+    extract_floor_number,
     extract_taxonomy,
     apply_backfill,
     run,
@@ -57,19 +58,58 @@ class TestBuildingType:
     def test_csaladi_haz(self):
         assert extract_building_type("részleges, 2004, nincs salak, családi ház, 82nm") == BuildingType.TEGLA_CSALADI_HAZ
 
-    def test_ambiguous_returns_none(self):
-        assert extract_building_type("1092 Ráday utca 5. 2 emelet, komplett, 1900-as évek, van salak, 83nm") is None
+    def test_ambiguous_defaults_to_tegla(self):
+        # No explicit type token, but the filename matches the corpus grammar
+        # (era clause present) -> TEGLA default (Task 2.5 rule).
+        assert extract_building_type("1092 Ráday utca 5. 2 emelet, komplett, 1900-as évek, van salak, 83nm") == BuildingType.TEGLA
 
     def test_product_term_not_type(self):
-        # "fűtéspanel" is a heating panel product, not a building type.
+        # "fűtéspanel" is a heating panel product, not a building type; and the
+        # text has no corpus grammar markers, so it stays None (not TEGLA).
         assert extract_building_type("nappaliban elektromos fűtéspanel") is None
 
-    def test_teglasi_street_not_type(self):
-        # "Téglási" is a street-name element, not the tégla type.
-        assert extract_building_type("Budakalász Téglási András utca, részleges, 2013, nincs salak") is None
+    def test_teglasi_street_defaults_to_tegla(self):
+        # "Téglási" is a street-name element, NOT the tégla type token; the
+        # filename still matches the corpus grammar, so it gets the TEGLA
+        # default via the era clause, not via a téglási match.
+        assert extract_building_type("Budakalász Téglási András utca, részleges, 2013, nincs salak") == BuildingType.TEGLA
 
-    def test_valyog(self):
-        assert extract_building_type("vályog épület, 1950 előtt") == BuildingType.VALYOG_VEGYES
+    def test_plain_arbitrary_text_none(self):
+        # No corpus grammar at all -> leave NULL rather than force a default.
+        assert extract_building_type("lakásfelújítás megjegyzések") is None
+
+    def test_example_csalogany(self):
+        # User Task 2.5 example filename (1 of 2).
+        assert extract_building_type("1015 Csalogány utca 12. fsz majdnem komplett, 1930-as évek, van salak, 32nm") == BuildingType.TEGLA
+
+    def test_example_kek_golyo(self):
+        # User Task 2.5 example filename (2 of 2).
+        assert extract_building_type("1123 Kék Golyó utca 30. 4 emelet, komplett, 1930-as évek, van salak, 42nm") == BuildingType.TEGLA
+
+
+class TestBuildingFloor:
+    def test_ground_floor_fsz(self):
+        # Ground floor = 1 (codebase convention, matches elevator_surcharge).
+        assert extract_floor_number("1015 Csalogány utca 12. fsz majdnem komplett, 1930-as évek, van salak, 32nm") == 1
+
+    def test_floor_number_kek_golyo(self):
+        # "4 emelet" -> 4 (matches the user's Task 2.5 example 2).
+        assert extract_floor_number("1123 Kék Golyó utca 30. 4 emelet, komplett, 1930-as évek, van salak, 42nm") == 4
+
+    def test_no_floor_clause(self):
+        assert extract_floor_number("1092 Ráday utca 5. komplett, 1900-as évek, van salak, 83nm") is None
+
+    def test_task2c_floor_regression_three_filenames(self):
+        # Task 2C regression: the 3 user-quoted filenames must yield
+        # floor_numbers 2, 2, 3 respectively, under BOTH "2 emelet" and
+        # "3. emelet" spellings and despite the preceding comma in case 3.
+        cases = [
+            ("1092 Ráday utca 5. 2 emelet, komplett, 1900-as évek, van salak, 83nm", 2),
+            ("1126 Hollósy Simon utca 30. 2 emelet, komplett, 1930-as évek, van salak, 76nm", 2),
+            ("1065 Bajcsy-Zsilinszky út 19, 3. emelet, részleges, 1930-as évek, van salak, 80nm, fürdő felújítás", 3),
+        ]
+        for stem, expected in cases:
+            assert extract_floor_number(stem) == expected
 
 
 class TestExtractTaxonomy:
@@ -80,10 +120,21 @@ class TestExtractTaxonomy:
         assert tax["building_type"] == BuildingType.PANEL
         assert tax["building_era"] == 1975
 
-    def test_nulls_for_ambiguous(self):
+    def test_tegla_default_for_ambiguous(self):
         tax = extract_taxonomy("1092 Ráday utca 5. 2 emelet, komplett, 1900-as évek, van salak, 83nm")
-        assert tax["building_type"] is None
+        assert tax["building_type"] == BuildingType.TEGLA
         assert tax["building_era"] == 1905
+
+    def test_example_filenames_floor_and_era(self):
+        # Task 2.5 examples: type TEGLA, era ~1930, floors 1 (ground) and 4.
+        for stem, floor in [
+            ("1015 Csalogány utca 12. fsz majdnem komplett, 1930-as évek, van salak, 32nm", 1),
+            ("1123 Kék Golyó utca 30. 4 emelet, komplett, 1930-as évek, van salak, 42nm", 4),
+        ]:
+            tax = extract_taxonomy(stem)
+            assert tax["building_type"] == BuildingType.TEGLA
+            assert tax["building_era"] == 1935
+            assert extract_floor_number(stem) == floor
 
 
 @pytest.fixture
@@ -121,7 +172,7 @@ class TestApplyBackfill:
             assert q.building_era == 1975
 
     @pytest.mark.asyncio
-    async def test_null_kept_for_ambiguous(self, backfill_engine):
+    async def test_tegla_default_applied(self, backfill_engine):
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import async_sessionmaker
         maker = async_sessionmaker(backfill_engine, expire_on_commit=False)
@@ -132,15 +183,15 @@ class TestApplyBackfill:
 
         rows = [{
             "file_name": "1092 Ráday utca 5. 2 emelet, komplett, 1900-as évek, van salak, 83nm.xlsx",
-            "building_type": None,
+            "building_type": "tegla",
             "building_era": 1905,
         }]
         applied, unresolved = await apply_backfill(rows, backfill_engine)
-        assert (applied, unresolved) == (0, 1)
+        assert (applied, unresolved) == (1, 0)
 
         async with maker() as s:
             q = (await s.execute(select(Quote))).scalars().one()
-            assert q.building_type is None
+            assert q.building_type == BuildingType.TEGLA
             assert q.building_era == 1905
 
     @pytest.mark.asyncio
