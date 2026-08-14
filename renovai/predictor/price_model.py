@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from .feature_extractor import QuoteFeatures, ApartmentInput, extract_features
 from ..ingestion.inflation_models import PriceIndex
 from ..ingestion.inflation_calc import inflate_quote_value, compound_inflation_factor
-from ..db.models import Quote
+from ..db.models import Quote, BuildingType
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,12 @@ _TYPE_MISMATCH_WEIGHT = 0.5  # different type: down-weighted, not excluded
 _ERA_MATCH_BAND_YEARS = 10  # |Δ| <= this → full era weight
 _ERA_FLOOR_WEIGHT = 0.3  # floor for very distant eras (never 0)
 
+# Canonical doc-01 taxonomy tokens (BuildingType enum values, already
+# ASCII). Used for type matching so that e.g. "tegla" (apartment brick)
+# does NOT substring-match "teglacsaladihaz" (family-house brick) — those
+# are distinct doc-01 categories that merely share a prefix.
+_CANONICAL_TYPE_TOKENS = {bt.value for bt in BuildingType}
+
 
 def _fold_type(value: Optional[str]) -> str:
     return (value or "").strip().lower().translate(_HU_ACCENT_MAP)
@@ -99,13 +105,37 @@ def _quote_type_token(building_type: Any) -> str:
         return _fold_type(str(building_type))
 
 
+def _canonical_types_in_text(text: str) -> Set[str]:
+    """Which doc-01 taxonomy tokens appear in a (folded) free-text type.
+
+    Returns the canonical tokens that are substrings of ``text``. This keeps
+    free-text user input ("1980 előtti tégla") matchable while never letting
+    a canonical token match a different canonical token (substring-matching
+    is applied only against the raw user text, not against other tokens).
+    """
+    found: Set[str] = set()
+    for token in _CANONICAL_TYPE_TOKENS:
+        if token in text:
+            found.add(token)
+    return found
+
+
 def building_type_similarity(user_type: Optional[str], quote_type: Any) -> float:
-    """Weight by building-type match (1.0 match, 0.5 mismatch, 1.0 if unknown)."""
+    """Weight by building-type match (1.0 match, 0.5 mismatch, 1.0 if unknown).
+
+    User free text is decomposed into canonical doc-01 tokens; a quote's
+    canonical type matches if it is one of those tokens. Because canonical
+    tokens are never substring-matched against *each other*, "tegla" cannot
+    match "teglacsaladihaz" (distinct doc-01 categories).
+    """
     u = _fold_type(user_type)
     q = _quote_type_token(quote_type)
     if not u or not q:
         return 1.0  # unknown on either side → neutral, don't starve the corpus
-    if q in u or u in q:
+    user_canonical = _canonical_types_in_text(u)
+    if not user_canonical:
+        return 1.0  # free text had no recognizable type → neutral
+    if q in user_canonical:
         return 1.0
     return _TYPE_MISMATCH_WEIGHT
 
@@ -128,6 +158,13 @@ def building_similarity_weight(apt: ApartmentInput, quote: Quote) -> float:
     return building_type_similarity(apt.building_type, quote.building_type) * era_similarity(
         apt.building_era, quote.building_era
     )
+
+
+def _weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
+    """Weighted arithmetic mean. Self-normalizing: a uniform scaling of
+    ``weights`` cancels (Σ(c·w·x)/Σ(c·w) == Σ(w·x)/Σ(w)), so combined
+    weights never need an explicit renormalization pass."""
+    return float(np.sum(weights * values) / np.sum(weights))
 
 
 def _get_quote_scopes(quote: Quote) -> Set[str]:
@@ -360,9 +397,7 @@ async def scope_matched_estimate(
             combined = ivw_weights * recency_weights * similarity_weights
             scope_combined_weights[scope_name] = list(float(w) for w in combined)
             scope_similarity_weights[scope_name] = list(float(w) for w in similarity_weights)
-            scope_avg_per_sqm[scope_name] = float(
-                np.sum(combined * vals) / np.sum(combined)
-            )
+            scope_avg_per_sqm[scope_name] = _weighted_mean(vals, combined)
             scope_fallback[scope_name] = False
         elif len(vals) == 1:
             scope_boost_year[scope_name] = entries[0][1]

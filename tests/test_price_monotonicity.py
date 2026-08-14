@@ -130,6 +130,32 @@ async def test_building_type_era_affects_estimate(session_maker, price_index):
         "estimator ignored building taxonomy entirely)"
     )
 
+    # The difference must be REAL weighting work, not a rounding artifact:
+    # at least one scope's similarity weights must be < 1.0 (i.e. the
+    # type/era factor actually fired and down-weighted some quote), and at
+    # least one scope's weighted per-sqm average must differ between the two
+    # requests.
+    cats_a = est_a.get("categories", {})
+    cats_b = est_b.get("categories", {})
+    sim_dropped = any(
+        any(w < 1.0 for w in scope.get("similarity_weights", []))
+        for cats in (cats_a, cats_b)
+        for scope in cats.values()
+    )
+    assert sim_dropped, (
+        "No scope applied a similarity weight < 1.0 — the building-type/era "
+        "factor is not doing any work"
+    )
+    scope_avg_differ = any(
+        cats_a.get(k, {}).get("avg_per_sqm_huf") != cats_b.get(k, {}).get("avg_per_sqm_huf")
+        for k in cats_a
+    )
+    assert scope_avg_differ, (
+        "Per-scope weighted averages are identical across the two requests "
+        "despite different building_type/building_era — the factor changed "
+        "nothing at the scope level"
+    )
+
 
 @pytest.mark.asyncio
 async def test_49_vs_99_comparison(session_maker, price_index):
