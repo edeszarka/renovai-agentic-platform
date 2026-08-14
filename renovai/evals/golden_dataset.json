@@ -386,5 +386,391 @@
       "must_explain_that_painting_and_plastering_are_wall_surface_area_dependent",
       "must_specify_ceiling_height_3_5m"
     ]
+  },
+  {
+    "case_id": "drywall_ceiling_010",
+    "input": {
+      "question_hu": "Mennyibe kerül négyzetméterre vetítve egy normál gipszkarton függesztett álmennyezet (design nélkül, negatív/pozitív irány nélkül)? Külön szeretném tudni a munkadíjat és az anyagköltséget.",
+      "params": {
+        "ceiling_type": "normál gipszkarton függesztett álmennyezet, design nélkül",
+        "unit": "per_sqm"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Normál gipszkarton függesztett álmennyezet (design nélkül): munkadíj 9 500-11 500 Ft/nm, anyag 5 000-6 200 Ft/nm.",
+      "labor_cost_per_sqm_huf_min": 9500,
+      "labor_cost_per_sqm_huf_max": 11500,
+      "material_cost_per_sqm_huf_min": 5000,
+      "material_cost_per_sqm_huf_max": 6200
+    },
+    "rubric": [
+      "must_return_exact_labor_range_9500_11500_huf_per_sqm",
+      "must_return_exact_material_range_5000_6200_huf_per_sqm",
+      "must_specify_normal_no_design_ceiling",
+      "must_report_per_sqm_basis"
+    ],
+    "notes": [
+      "Doc 03 item 4. Cross-ref: .agent/skills/structural-core-specialist/references/pricing.md:60-67."
+    ]
+  },
+  {
+    "case_id": "appliance_package_011",
+    "input": {
+      "question_hu": "Mennyibe kerül egy háztartási gép csomag a konyhába: 4 zónás elektromos (nem indukciós) beépíthető főzőlap, elektromos beépíthető sütő, 12 terítékes beépíthető mosogatógép, kihúzható és beépíthető szagelszívó, valamint egy alul fagyasztós beépíthető hűtő?",
+      "params": {
+        "hob": "4 zónás elektromos, nem indukciós, beépíthető",
+        "oven": "elektromos beépíthető",
+        "dishwasher": "12 terítékes beépíthető",
+        "range_hood": "kihúzható és beépíthető szagelszívó",
+        "refrigerator": "alul fagyasztós beépíthető"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Háztartási gép csomag: 4 zónás (nem indukciós) főzőlap 100-140 e Ft, elektromos sütő 100-140 e Ft, 12 terítékes mosogatógép 120-160 e Ft, kihúzható szagelszívó 30-50 e Ft, alul fagyasztós hűtő 130-170 e Ft. Összesen kb. 480-660 e Ft.",
+      "hob_cost_huf_min": 100000,
+      "hob_cost_huf_max": 140000,
+      "oven_cost_huf_min": 100000,
+      "oven_cost_huf_max": 140000,
+      "dishwasher_cost_huf_min": 120000,
+      "dishwasher_cost_huf_max": 160000,
+      "range_hood_cost_huf_min": 30000,
+      "range_hood_cost_huf_max": 50000,
+      "refrigerator_cost_huf_min": 130000,
+      "refrigerator_cost_huf_max": 170000,
+      "package_total_range_huf": "480000 - 660000"
+    },
+    "rubric": [
+      "must_return_exact_hob_range_100k_140k_huf",
+      "must_return_exact_oven_range_100k_140k_huf",
+      "must_return_exact_dishwasher_range_120k_160k_huf",
+      "must_return_exact_range_hood_range_30k_50k_huf",
+      "must_return_exact_refrigerator_range_130k_170k_huf",
+      "must_note_hob_is_non_induction",
+      "must_state_package_total_range_480k_660k_huf"
+    ],
+    "notes": [
+      "PENDING RECONCILIATION — doc 03 gives flat ranges that don't cleanly map to doc 04's 6-tier pricing (see FAZIS_A_FINDINGS.md §3 for the exact per-appliance discrepancy table). This case uses doc 03's flat figures as an interim reference; expect this case to be revised once the appliance pricing conflict is resolved."
+    ]
+  },
+  {
+    "case_id": "screed_subfloor_concrete_012",
+    "input": {
+      "question_hu": "Mennyibe kerül az esztrich aljzatbeton (gépi keverés, simított, vibrált, szálerősített) 80-100 nm alatti lakásban, négyzetméterre vetítve? Anyagot és munkadíjat külön kérem, illetve az együttes árat is.",
+      "params": {
+        "apartment_size_sqm_upper_limit": 100,
+        "screed_type": "gépi keverés, simított, vibrált, szálerősített",
+        "unit": "per_sqm"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Esztrich aljzatbeton (gépi keverés, simított, vibrált, szálerősített) 80-100 nm alatti lakásnál: anyag + munkadíj együtt 6 000-9 000 Ft/nm (munkadíj 5 000-7 000 Ft/nm, anyag 1 500-3 000 Ft/nm).",
+      "combined_cost_per_sqm_huf_min": 6000,
+      "combined_cost_per_sqm_huf_max": 9000,
+      "labor_cost_per_sqm_huf_min": 5000,
+      "labor_cost_per_sqm_huf_max": 7000,
+      "material_cost_per_sqm_huf_min": 1500,
+      "material_cost_per_sqm_huf_max": 3000
+    },
+    "rubric": [
+      "must_return_exact_combined_range_6k_9k_huf_per_sqm",
+      "must_return_exact_labor_range_5k_7k_huf_per_sqm",
+      "must_return_exact_material_range_1_5k_3k_huf_per_sqm",
+      "must_identify_machine_mixed_screed_technique",
+      "must_specify_under_100_sqm_apartment"
+    ],
+    "notes": [
+      "Doc 03 item 8. Cross-ref: .agent/skills/masonry-specialist/references/pricing.md:12-18."
+    ]
+  },
+  {
+    "case_id": "old_plaster_rewalling_013",
+    "input": {
+      "question_hu": "Mire kell figyelni egy 40-60 éves vakolt falnál fürdőben/wc-ben hidegburkolás előtt? A bontás során mire lehet számítani, és miért nem elég csak vízszigetelni és burkolni?",
+      "params": {
+        "wall_condition": "40-60 éves vakolt fal fürdőben/wc-ben",
+        "works_before_tiling": "hidegburkolás előtt",
+        "house_age_range": "40-100 éves"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "40-60 éves vakolt falnál a régi habarcsréteg valószínűleg tégláig jön a bontáskor, ezért nemcsak vízszigetelni és burkolni kell, hanem újra vakolni is: kb. 2-3 cm vastagságban egy 40-100 éves házban.",
+      "old_mortar_comes_to_brick": true,
+      "replaster_required": true,
+      "replaster_thickness_cm": "2-3",
+      "requires_beyond_waterproofing_and_tiling": true
+    },
+    "rubric": [
+      "must_identify_old_mortar_layer_likely_comes_to_brick_on_demolition",
+      "must_state_replaster_required_in_addition_to_waterproofing_and_tiling",
+      "must_return_replaster_thickness_2_3_cm",
+      "must_mention_40_100_year_house_age"
+    ],
+    "notes": [
+      "TODO — doc 03 gives no HUF figures for this item; cost figures to be defined in Menet 2 (rule engine) before this case can be scored numerically."
+    ]
+  },
+  {
+    "case_id": "amperage_upgrade_32a_014",
+    "input": {
+      "question_hu": "Mennyibe kerül a 32 amperes bővítés mérőóra-szabványosítással, egy fázison, olyan mérőóránál, ami 3-5 m távolságon belül van? Anyagot és munkadíjat együtt.",
+      "params": {
+        "amperage": 32,
+        "phase": "egy fázis",
+        "meter_distance_m": "3-5",
+        "includes_meter_standardization": true
+      }
+    },
+    "expected_output": {
+      "summary_hu": "32 amperes bővítés mérőóra-szabványosítással, egy fázison, 3-5 m távolságon belüli mérőóra esetén: anyaggal és munkadíjjal együtt kb. 260 000-320 000 Ft.",
+      "total_cost_huf_min": 260000,
+      "total_cost_huf_max": 320000,
+      "scope_note": "32A upgrade + meter standardization, single phase, meter within 3-5 m."
+    },
+    "rubric": [
+      "must_return_exact_total_range_260k_320k_huf",
+      "must_identify_single_phase_32A_upgrade",
+      "must_mention_meter_within_3_5_m",
+      "must_include_meter_standardization_in_scope"
+    ],
+    "notes": [
+      "Doc 03 item 10. The codebase flat constant ELECTRICAL_STANDARDIZATION_MINIMUM = 300000 (renovai/predictor/structural_cost.py:247) is a single simplified figure; doc 03's 260-320k range is authoritative for this case."
+    ]
+  },
+  {
+    "case_id": "multisplit_ac_installation_015",
+    "input": {
+      "question_hu": "Mennyibe kerül egy multisplit klíma szerelése 10 m vésésig, kül- és beltéri egység nélkül, külön alapszereléssel és külön szerelvényezéssel? Kérem a 2 beltéri + 1 kültéri és a 3 beltéri + 1 kültéri konfigurációt is.",
+      "params": {
+        "max_conduit_length_m": 10,
+        "units_included": false,
+        "config_2_1": "2 beltéri + 1 kültéri",
+        "config_3_1": "3 beltéri + 1 kültéri"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Multisplit szerelés (10 m vésésig, egységek nélkül): 2 beltéri + 1 kültéri: alapszerelés 2x60-90 e = 120-180 e Ft, szerelvényezés 2x60-75 e = 120-150 e Ft, összesen 240-330 e Ft. 3 beltéri + 1 kültéri: alapszerelés 3x60-90 e = 180-270 e Ft, szerelvényezés 3x60-75 e = 180-225 e Ft, összesen 360-495 e Ft.",
+      "config_2_1": {
+        "base_installation_huf_min": 120000,
+        "base_installation_huf_max": 180000,
+        "fitting_huf_min": 120000,
+        "fitting_huf_max": 150000,
+        "total_range_huf": "240000 - 330000"
+      },
+      "config_3_1": {
+        "base_installation_huf_min": 180000,
+        "base_installation_huf_max": 270000,
+        "fitting_huf_min": 180000,
+        "fitting_huf_max": 225000,
+        "total_range_huf": "360000 - 495000"
+      }
+    },
+    "rubric": [
+      "must_return_exact_2_1_base_range_120k_180k_huf",
+      "must_return_exact_2_1_fitting_range_120k_150k_huf",
+      "must_return_exact_3_1_base_range_180k_270k_huf",
+      "must_return_exact_3_1_fitting_range_180k_225k_huf",
+      "must_note_units_not_included",
+      "must_specify_10m_conduit_limit",
+      "must_split_base_installation_and_fitting"
+    ]
+  },
+  {
+    "case_id": "water_outlet_016",
+    "input": {
+      "question_hu": "Mennyibe kerül egy víz-kiállás (alapszerelés + szerelvényezés, szaniterek nélkül)? Víz- és fűtés-kiállásra egyaránt érdekel.",
+      "params": {
+        "outlet_type": "víz- vagy fűtés-kiállás",
+        "includes_sanitaryware": false,
+        "quantity": 1
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Egy víz-kiállás (alapszerelés + szerelvényezés, szaniterek nélkül): 70 000-120 000 Ft/kiállás, víz- és fűtés-kiállásra egyaránt.",
+      "cost_per_outlet_huf_min": 70000,
+      "cost_per_outlet_huf_max": 120000
+    },
+    "rubric": [
+      "must_return_exact_range_70k_120k_huf_per_outlet",
+      "must_apply_same_range_to_water_and_heating_outlets",
+      "must_note_sanitaryware_excluded",
+      "must_include_base_installation_and_fitting"
+    ]
+  },
+  {
+    "case_id": "monosplit_ac_3_5kw_017",
+    "input": {
+      "question_hu": "Mennyibe kerül egy monosplit, 3,5 kW inverteres (fűt/hűt) klíma bel- és kültéri egységgel együtt?",
+      "params": {
+        "type": "monosplit",
+        "capacity_kw": 3.5,
+        "inverter": true,
+        "heating_and_cooling": true,
+        "includes_units": true
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Monosplit 3,5 kW inverteres (fűt/hűt) klíma bel- és kültéri egységgel: kb. 170 000-220 000 Ft.",
+      "total_cost_huf_min": 170000,
+      "total_cost_huf_max": 220000
+    },
+    "rubric": [
+      "must_return_exact_range_170k_220k_huf",
+      "must_specify_monosplit_3_5kW",
+      "must_specify_inverter_heating_cooling",
+      "must_include_indoor_and_outdoor_units"
+    ]
+  },
+  {
+    "case_id": "interior_door_installation_018",
+    "input": {
+      "question_hu": "Mennyibe kerül a beltéri ajtók beszerelése méretre gyártott, CPL fóliás ajtóknál (2,2 m magasságig, 20 cm tokszélességig)? Kérem az összes variációt: külső zsanéros 1 m nyílásig, belső zsanéros 2 m nyílásig, egyszárnyú tolóajtó 1 m nyílásig, kétszárnyú tolóajtó 2 m nyílásig, üveggel és üveg nélkül. Ajtó árát és beszerelést külön.",
+      "params": {
+        "door_type": "CPL fóliás, méretre gyártott",
+        "max_height_m": 2.2,
+        "max_frame_width_cm": 20
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Beltéri ajtók (CPL fóliás, méretre gyártott): külső zsanéros 1 m-ig üveg nélkül 90-130 e + szerelés 23-27 e, üveggel 130-180 e + 25-30 e. Belső zsanéros 2 m-ig üveg nélkül 140-180 e + 30-35 e, üveggel 170-230 e + 32-37 e. Egyszárnyú toló 1 m-ig üveg nélkül 120-150 e + 25-28 e, üveggel 140-180 e + 25-30 e. Kétszárnyú toló 2 m-ig üveg nélkül 180-240 e + 35-45 e, üveggel 200-280 e + 34-45 e.",
+      "exterior_hinged_1m": {
+        "no_glass_door_huf_min": 90000,
+        "no_glass_door_huf_max": 130000,
+        "no_glass_install_huf_min": 23000,
+        "no_glass_install_huf_max": 27000,
+        "with_glass_door_huf_min": 130000,
+        "with_glass_door_huf_max": 180000,
+        "with_glass_install_huf_min": 25000,
+        "with_glass_install_huf_max": 30000
+      },
+      "interior_hinged_2m": {
+        "no_glass_door_huf_min": 140000,
+        "no_glass_door_huf_max": 180000,
+        "no_glass_install_huf_min": 30000,
+        "no_glass_install_huf_max": 35000,
+        "with_glass_door_huf_min": 170000,
+        "with_glass_door_huf_max": 230000,
+        "with_glass_install_huf_min": 32000,
+        "with_glass_install_huf_max": 37000
+      },
+      "single_leaf_sliding_1m": {
+        "no_glass_door_huf_min": 120000,
+        "no_glass_door_huf_max": 150000,
+        "no_glass_install_huf_min": 25000,
+        "no_glass_install_huf_max": 28000,
+        "with_glass_door_huf_min": 140000,
+        "with_glass_door_huf_max": 180000,
+        "with_glass_install_huf_min": 25000,
+        "with_glass_install_huf_max": 30000
+      },
+      "double_leaf_sliding_2m": {
+        "no_glass_door_huf_min": 180000,
+        "no_glass_door_huf_max": 240000,
+        "no_glass_install_huf_min": 35000,
+        "no_glass_install_huf_max": 45000,
+        "with_glass_door_huf_min": 200000,
+        "with_glass_door_huf_max": 280000,
+        "with_glass_install_huf_min": 34000,
+        "with_glass_install_huf_max": 45000
+      }
+    },
+    "rubric": [
+      "must_return_exact_exterior_hinged_1m_ranges",
+      "must_return_exact_interior_hinged_2m_ranges",
+      "must_return_exact_single_leaf_sliding_1m_ranges",
+      "must_return_exact_double_leaf_sliding_2m_ranges",
+      "must_separate_door_price_from_installation",
+      "must_specify_CPL_foil_dimension_made_doors",
+      "must_cover_with_and_without_glass_variants"
+    ],
+    "notes": [
+      "Doc 03 item 15. Cross-ref: .agent/skills/finishing-interior-specialist/references/pricing.md:83-111 and doc 04 §4."
+    ]
+  },
+  {
+    "case_id": "thermostat_valve_replacement_019",
+    "input": {
+      "question_hu": "Mennyibe kerül a kiállás átalakítása vagy cseréje termosztátos szelepre? A szelep 10-20 év után elromolhat, vagy régi és nem kompatibilis lehet (távfűtés/házközponti esetén).",
+      "params": {
+        "reason": "szelep elromlott vagy régi/nem kompatibilis (távfűtés/házközponti)",
+        "scope": "kiállás cseréje vagy átalakítása termosztátos szelepre"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Kiállás termosztátos szelepre cseréje/átalakítása: anyag (szelep 5-9 e Ft + csonk 3-7 e Ft), munkadíj 20-50 e Ft/kiállás (csere esetén közelebb a 20-hoz, átalakítás + forrasztás esetén közelebb az 50-hez).",
+      "valve_material_cost_huf_min": 5000,
+      "valve_material_cost_huf_max": 9000,
+      "stub_material_cost_huf_min": 3000,
+      "stub_material_cost_huf_max": 7000,
+      "labor_cost_per_outlet_huf_min": 20000,
+      "labor_cost_per_outlet_huf_max": 50000,
+      "labor_note": "Replacement closer to 20k; conversion + soldering closer to 50k."
+    },
+    "rubric": [
+      "must_return_exact_valve_material_range_5k_9k_huf",
+      "must_return_exact_stub_material_range_3k_7k_huf",
+      "must_return_exact_labor_range_20k_50k_huf_per_outlet",
+      "must_distinguish_replacement_vs_conversion_labor",
+      "must_mention_10_20_year_valve_lifespan"
+    ]
+  },
+  {
+    "case_id": "laminate_flooring_installation_020",
+    "input": {
+      "question_hu": "Mennyibe kerül a laminált padló lerakása (7-12 mm, szegőléc ragasztva, gérvágott sarkok, XPS + párazáró fólia + burkolatváltók) négyzetméterre vetítve, illetve mennyi a plusz ragasztó költsége?",
+      "params": {
+        "laminate_thickness_mm": "7-12",
+        "skirting": "ragasztva",
+        "corners": "gérvágott",
+        "underlay": "XPS + párazáró fólia",
+        "transitions": "burkolatváltók",
+        "unit": "per_sqm"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Laminált padló lerakása (7-12 mm, szegőléc ragasztva, gérvágott sarkok, XPS + párazáró fólia + burkolatváltók): munkadíj 5 500-7 500 Ft/nm, plusz ragasztó (szegőléc + burkolatváltó) 9 000-14 000 Ft.",
+      "labor_cost_per_sqm_huf_min": 5500,
+      "labor_cost_per_sqm_huf_max": 7500,
+      "extra_adhesive_huf_min": 9000,
+      "extra_adhesive_huf_max": 14000
+    },
+    "rubric": [
+      "must_return_exact_labor_range_5_5k_7_5k_huf_per_sqm",
+      "must_return_exact_extra_adhesive_range_9k_14k_huf",
+      "must_specify_7_12mm_laminate",
+      "must_mention_skirting_and_transition_transition_adhesive"
+    ],
+    "notes": [
+      "Doc 03 item 18. Cross-ref: .agent/skills/finishing-interior-specialist/references/pricing.md:49-72."
+    ]
+  },
+  {
+    "case_id": "paint_quantity_estimation_021",
+    "input": {
+      "question_hu": "Mennyi festék kell egy 50-60 nm alapterületű lakásnál, 2.6-2.8 m belmagasság mellett, egy színnel, fürdő és wc kivételével? A felület egy rétegben 150-200 nm, két rétegben ennek a duplája.",
+      "params": {
+        "apartment_size_sqm": "50-60",
+        "ceiling_height_m": "2.6-2.8",
+        "single_color": true,
+        "excluded_rooms": ["fürdő", "wc"],
+        "single_layer_surface_sqm": "150-200"
+      }
+    },
+    "expected_output": {
+      "summary_hu": "Festékmennyiség 50-60 nm lakáshoz (2.6-2.8 m belmagasság, egy szín, fürdő/wc nélkül): kb. 3x15 l = 45 l színes festék + 45-60 l fehér festék.",
+      "colored_paint_liters": 45,
+      "colored_breakdown": "3 x 15 liter",
+      "white_paint_liters_min": 45,
+      "white_paint_liters_max": 60
+    },
+    "rubric": [
+      "must_return_exact_colored_paint_45_liters",
+      "must_return_exact_white_paint_range_45_60_liters",
+      "must_express_colored_as_3x15_l",
+      "must_note_bathroom_and_wc_excluded",
+      "must_specify_single_layer_150_200_sqm"
+    ],
+    "notes": [
+      "Doc 03 item 19. Cross-ref: .agent/skills/finishing-interior-specialist/references/pricing.md:32-47."
+    ]
   }
 ]
