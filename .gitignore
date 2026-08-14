@@ -19,6 +19,8 @@ data/cache/
 data/models/
 data/reports/
 data/*.db
+data/*.db.*
+data/audit_trail.jsonl
 
 # Testing
 .pytest_cache/
