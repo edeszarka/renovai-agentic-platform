@@ -97,6 +97,41 @@ async def test_price_monotonicity(session_maker, price_index):
 
 
 @pytest.mark.asyncio
+async def test_building_type_era_affects_estimate(session_maker, price_index):
+    """Regression: estimates must differ by building_type/building_era.
+
+    This directly tests the ORIGINAL BUG REPORT that started this whole
+    effort: two requests with identical scope and area but different
+    building_type / building_era returned identical estimates, because the
+    corpus weighting ignored the building taxonomy entirely. With the
+    type × era similarity factor, same-type-and-close-era quotes are
+    weighted up and distant matches down-weighted, so the two estimates
+    must diverge.
+    """
+    base = dict(total_area_sqm=55.0, num_rooms=2, **FULL_SCOPE)
+
+    apt_old_panel = ApartmentInput(building_type="panel", building_era=1975, **base)
+    apt_new_brick = ApartmentInput(building_type="tégla", building_era=2005, **base)
+
+    est_a = await scope_matched_estimate(
+        apt_old_panel, session_maker, price_index, TARGET_DATE
+    )
+    est_b = await scope_matched_estimate(
+        apt_new_brick, session_maker, price_index, TARGET_DATE
+    )
+
+    assert est_a is not None and est_b is not None
+
+    # Identical scope + area, but the two requests differ in type/era —
+    # the estimator must produce different estimates (not a silent no-op).
+    assert est_a["estimate_mid_huf"] != est_b["estimate_mid_huf"], (
+        "Estimates for identical scope/area but different building_type/"
+        "building_era must NOT be identical (original bug report: the "
+        "estimator ignored building taxonomy entirely)"
+    )
+
+
+@pytest.mark.asyncio
 async def test_49_vs_99_comparison(session_maker, price_index):
     """Specifically compare the 49m2/2-room vs 99m2/4-room case.
     The old bug produced a ratio near 1.0x (only ~1M difference).
