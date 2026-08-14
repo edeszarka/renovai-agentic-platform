@@ -14,23 +14,23 @@ from fastapi import FastAPI, BackgroundTasks, Query, Depends, HTTPException, sta
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from .config import AppConfig
+from renovai.api.config import AppConfig
 from .schemas import (
     EstimateRequest, EstimateResponse, AdvisoryRequest, AdvisoryResponse,
     QueryRequest, QueryResponse, HealthResponse, IngestRequest, IngestResponse
 )
 from .errors import setup_exception_handlers, logging_middleware
 
-from ..rag.vector_store import VectorStoreConfig, RenovAIVectorStore
-from ..rag.embedder import EmbedderConfig
-from ..rag.retriever import RetrievalConfig
-from ..rag.gemini_client import GeminiConfig
-from ..rag.pipeline import RAGPipeline
-from ..predictor.feature_extractor import apartment_input_to_features, ApartmentInput
-from ..predictor.price_model import predict, find_similar_quotes
-from ..advisor.pre_purchase import generate_report, ApartmentProfile
-from ..advisor.report_renderer import render_report_md
-from ..ingestion.inflation_calc import load_price_index
+from renovai.rag.vector_store import VectorStoreConfig, RenovAIVectorStore
+from renovai.rag.embedder import EmbedderConfig
+from renovai.rag.retriever import RetrievalConfig
+from renovai.rag.gemini_client import GeminiConfig
+from renovai.rag.pipeline import RAGPipeline
+from renovai.predictor.feature_extractor import apartment_input_to_features, ApartmentInput
+from renovai.predictor.price_model import predict, find_similar_quotes
+from renovai.advisor.pre_purchase import generate_report, ApartmentProfile
+from renovai.advisor.report_renderer import render_report_md
+from renovai.ingestion.inflation_calc import load_price_index
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -256,8 +256,8 @@ async def get_query_stream(
 
 # Background Ingestion
 async def run_ingestion_task(task_id: str, quotes_dir: str, adjust_inflation: bool):
-    from ..ingestion.quote_parser import parse_all_quotes
-    from ..scripts.build_vector_store import build_vector_store
+    from renovai.ingestion.quote_parser import parse_all_quotes
+    from scripts.build_vector_store import build_vector_store
     
     ingestion_tasks[task_id]["status"] = "processing"
     try:

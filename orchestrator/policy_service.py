@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 
 import yaml
 
+from renovai.safety.audit_trail import AuditStore
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,17 +76,48 @@ class PolicyService:
             result = await svc.check_semantic({"question": "..."}, trace_id)
     """
 
-    def __init__(self, policies_path: str | Path | None = None):
+    def __init__(
+        self,
+        policies_path: str | Path | None = None,
+        audit_store: AuditStore | None = None,
+    ):
+        """Build a PolicyService over policies.yaml, with an optional AuditStore."""
         self._engine = PolicyEngine.load(policies_path)
         self._pii_patterns: list[tuple[str, re.Pattern]] = self._compile_pii_patterns()
         # Lazy-loaded Gemini client for semantic checks
         self._semantic_client = None
         # Agent Identity Manager for ABAC
         self._identity_manager: Any = None
+        # Append-only audit trail (defaults to data/audit_trail.jsonl)
+        self._audit_store: AuditStore = audit_store or AuditStore()
 
     def set_identity_manager(self, mgr: Any) -> None:
         """Inject the AgentIdentityManager for ABAC token verification."""
         self._identity_manager = mgr
+
+    def _record_check(
+        self,
+        result: PolicyCheckResult,
+        role: str,
+        action: str,
+        resource: str = "-",
+    ) -> PolicyCheckResult:
+        """Persist an audit entry for a resolved policy check.
+
+        Appends an entry with the check's trace_id, role, action, resource and
+        allow/deny decision, then returns the result unchanged so the existing
+        call sites keep working without any behavior change.
+        """
+        decision = "allow" if result.passed else "deny"
+        self._audit_store.record_policy_check(
+            trace_id=result.trace_id,
+            role=role,
+            action=action,
+            resource=resource,
+            decision=decision,
+            check_type=result.check_type,
+        )
+        return result
 
     # -----------------------------------------------------------------------
     # ABAC check (Agent Identity-based)
@@ -167,21 +200,27 @@ class PolicyService:
         # 1. Resolve the role definition
         role_def = self._engine.roles.get(role)
         if role_def is None:
-            return PolicyCheckResult(
-                passed=False,
-                reason=f"Unknown role: '{role}'",
-                trace_id=tid,
-                check_type="structural",
+            return self._record_check(
+                PolicyCheckResult(
+                    passed=False,
+                    reason=f"Unknown role: '{role}'",
+                    trace_id=tid,
+                    check_type="structural",
+                ),
+                role, action,
             )
 
         # 2. Check if this action is explicitly forbidden
         cannot_access = role_def.get("cannot_access", [])
         if action in cannot_access:
-            return PolicyCheckResult(
-                passed=False,
-                reason=f"Role '{role}' is explicitly forbidden from accessing '{action}'.",
-                trace_id=tid,
-                check_type="structural",
+            return self._record_check(
+                PolicyCheckResult(
+                    passed=False,
+                    reason=f"Role '{role}' is explicitly forbidden from accessing '{action}'.",
+                    trace_id=tid,
+                    check_type="structural",
+                ),
+                role, action,
             )
 
         # 3. Check if this action is in the allowlist
@@ -189,23 +228,29 @@ class PolicyService:
         can_access = role_def.get("can_access", [])
         allowed = can_execute + can_access
         if action not in allowed:
-            return PolicyCheckResult(
-                passed=False,
-                reason=f"Role '{role}' does not have permission for action '{action}'. "
-                       f"Allowed actions: {allowed}",
-                trace_id=tid,
-                check_type="structural",
+            return self._record_check(
+                PolicyCheckResult(
+                    passed=False,
+                    reason=f"Role '{role}' does not have permission for action '{action}'. "
+                           f"Allowed actions: {allowed}",
+                    trace_id=tid,
+                    check_type="structural",
+                ),
+                role, action,
             )
 
         # 4. Run action-specific structural checks from the rules list
         for rule in self._engine.structural_checks:
             if rule["action"] == action:
                 if role not in rule.get("allowed_roles", []):
-                    return PolicyCheckResult(
-                        passed=False,
-                        reason=rule.get("deny_message", f"Role '{role}' not allowed for action '{action}'."),
-                        trace_id=tid,
-                        check_type="structural",
+                    return self._record_check(
+                        PolicyCheckResult(
+                            passed=False,
+                            reason=rule.get("deny_message", f"Role '{role}' not allowed for action '{action}'."),
+                            trace_id=tid,
+                            check_type="structural",
+                        ),
+                        role, action,
                     )
                 # Check required fields (if the caller supplied them)
                 required = rule.get("required_fields", [])
@@ -218,11 +263,14 @@ class PolicyService:
             "[%s] STRUCTURAL PASS: role=%s action=%s",
             tid, role, action,
         )
-        return PolicyCheckResult(
-            passed=True,
-            reason=f"Role '{role}' is authorised for action '{action}'.",
-            trace_id=tid,
-            check_type="structural",
+        return self._record_check(
+            PolicyCheckResult(
+                passed=True,
+                reason=f"Role '{role}' is authorised for action '{action}'.",
+                trace_id=tid,
+                check_type="structural",
+            ),
+            role, action,
         )
 
     # -----------------------------------------------------------------------
@@ -233,15 +281,22 @@ class PolicyService:
         self,
         tool_args: dict[str, Any],
         trace_id: str | None = None,
+        role: str | None = None,
+        action: str | None = None,
     ) -> PolicyCheckResult:
         """
         Check tool arguments for PII, policy violations, or unsafe content.
 
         Uses Gemini flash-lite for speed. Falls back to regex PII scan if
         the API call fails or times out.
+
+        `role` and `action` (the gating context from the preceding structural
+        check) are optional and, when supplied, are recorded on the audit entry.
         """
         tid = trace_id or str(uuid.uuid4())
         semantic_cfg = self._engine.semantic_config
+        log_role = role or "semantic"
+        log_action = action or "check"
 
         # 1. Quick regex-based PII scan (always runs, even before LLM)
         pii_findings = self._scan_pii(tool_args)
@@ -250,21 +305,27 @@ class PolicyService:
                 "[%s] SEMANTIC PII DETECTED (regex): %s",
                 tid, pii_findings,
             )
-            return PolicyCheckResult(
-                passed=False,
-                reason=f"PII detected via regex patterns: {pii_findings}. "
-                       f"Arguments must be anonymized before tool execution.",
-                trace_id=tid,
-                check_type="semantic",
+            return self._record_check(
+                PolicyCheckResult(
+                    passed=False,
+                    reason=f"PII detected via regex patterns: {pii_findings}. "
+                           f"Arguments must be anonymized before tool execution.",
+                    trace_id=tid,
+                    check_type="semantic",
+                ),
+                log_role, log_action,
             )
 
         # 2. LLM-based semantic check (if enabled and configured)
         if not semantic_cfg.get("content_safety_enabled", True):
-            return PolicyCheckResult(
-                passed=True,
-                reason="Semantic checks disabled by configuration.",
-                trace_id=tid,
-                check_type="semantic",
+            return self._record_check(
+                PolicyCheckResult(
+                    passed=True,
+                    reason="Semantic checks disabled by configuration.",
+                    trace_id=tid,
+                    check_type="semantic",
+                ),
+                log_role, log_action,
             )
 
         try:
@@ -274,18 +335,21 @@ class PolicyService:
                     "[%s] SEMANTIC BLOCKED: %s",
                     tid, result.reason,
                 )
-            return result
+            return self._record_check(result, log_role, log_action)
         except Exception as exc:
             # Fallback: if LLM check fails, allow with warning
             logger.warning(
                 "[%s] SEMANTIC CHECK FAILED (allowing with warning): %s",
                 tid, exc,
             )
-            return PolicyCheckResult(
-                passed=True,
-                reason=f"Semantic LLM check unavailable ({exc}). Allowing with warning.",
-                trace_id=tid,
-                check_type="semantic",
+            return self._record_check(
+                PolicyCheckResult(
+                    passed=True,
+                    reason=f"Semantic LLM check unavailable ({exc}). Allowing with warning.",
+                    trace_id=tid,
+                    check_type="semantic",
+                ),
+                log_role, log_action,
             )
 
     # -----------------------------------------------------------------------

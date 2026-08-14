@@ -28,7 +28,7 @@ class ApartmentProfileHasher:
         hasher = ApartmentProfileHasher(tenant_id="user_abc", cache=cache)
         profile = {
             "district": 7,
-            "building_era": "1960_1990",
+            "building_era": 1960,
             "area_sqm": 55.0,
             "scope_flags": {"plumbing": True, "electrical": True},
         }
@@ -53,7 +53,7 @@ class ApartmentProfileHasher:
 
         The hash is based on:
         - district (int)
-        - building_era (str or null)
+        - building_era (int or null)
         - area_sqm rounded to nearest 5 (for fuzzy matching)
         - scope_flags sorted by key (for deterministic ordering)
 

@@ -20,7 +20,48 @@ from pathlib import Path
 from typing import Any
 from datetime import date
 
+from renovai.safety.green_team import GreenTeamService
+
 logger = logging.getLogger(__name__)
+
+
+async def _green_team_gate(
+    green_team_service: GreenTeamService,
+    trace_id: str,
+    user_intent: str,
+    proposed_action: str,
+    confidence: float,
+    semantic_risk: str,
+    proposed_response: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Run the Green Team human-in-the-loop gate for a handler result.
+
+    Evaluates the existing confidence / semantic-risk signals and returns the
+    payload to merge into the handler's response so the UI can render a
+    "needs review" state instead of a plain number.
+
+    Returns:
+        ``{"needs_intervention": bool}`` and, when intervention is required, a
+        nested ``"green_team"`` dict with the approval-request metadata
+        (request_id, risk_level, trigger_reason).
+    """
+    decision = await green_team_service.evaluate(
+        trace_id=trace_id,
+        user_intent=user_intent,
+        confidence=confidence,
+        proposed_action=proposed_action,
+        proposed_response=proposed_response,
+        semantic_risk=semantic_risk,
+    )
+    payload: dict[str, Any] = {"needs_intervention": decision.needs_intervention}
+    if decision.needs_intervention and decision.request is not None:
+        payload["green_team"] = {
+            "request_id": decision.request.request_id,
+            "risk_level": decision.request.risk_level,
+            "trigger_reason": decision.request.trigger_reason,
+        }
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +77,7 @@ async def handle_cost_estimation(
     policy_service: Any,
     skill_registry: Any,
     trace_id: str,
+    green_team_service: GreenTeamService | None = None,
 ) -> dict[str, Any]:
     """
     Cost Estimator handler.
@@ -48,7 +90,8 @@ async def handle_cost_estimation(
     Output contract:
       { "estimate_low_huf": int, "estimate_mid_huf": int,
         "estimate_high_huf": int, "inflation_adjusted_to": str,
-        "similar_quotes": [...], "warnings": [...] }
+        "similar_quotes": [...], "warnings": [...],
+        "needs_intervention": bool }
     """
     # Structural gate
     sr = policy_service.check_structural("cost_estimator", "produce_estimate", trace_id)
@@ -56,7 +99,9 @@ async def handle_cost_estimation(
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
     # Semantic gate on input params
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="cost_estimator", action="produce_estimate",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -101,6 +146,7 @@ async def handle_cost_estimation(
             district=params.get("district", 1),
             total_area_sqm=params.get("area_sqm", 55.0),
             num_rooms=params.get("num_rooms", 2),
+            building_type=params.get("building_type"),
             building_era=params.get("building_era"),
             needs_plumbing=scope_flags.get("plumbing", False),
             needs_electrical=scope_flags.get("electrical", False),
@@ -150,7 +196,7 @@ async def handle_cost_estimation(
             detect_active_chains, chain_total_cost,
             apply_infrastructure_minimums,
             compute_logistics_surcharge, elevator_surcharge,
-            chimney_technician_cost,
+            chimney_technician_cost, CostBreakdownOutput,
         )
 
         scope = params.get("scope_flags", {})
@@ -200,6 +246,18 @@ async def handle_cost_estimation(
             base_mid += chain_delta
             base_high += int(chain_costs["high"] * 1.20)
         adjustments["chain_cost_huf"] = chain_delta
+
+        # Pydantic guard: if the scope triggers a CHAIN_RULES entry but the
+        # chain was dropped from the breakdown, fail loudly instead of
+        # silently returning 0 for the structural cost.
+        CostBreakdownOutput(
+            chain_ids_applied=[c["id"] for c in active_chains],
+            chain_cost_huf=chain_costs["point"],
+            building_era=building_era,
+            scope=scope,
+            floor_number=floor_number,
+            gas_heating=gas_heating,
+        )
 
         # 3 — Infrastructure minimums
         is_full = renovation_scope == "full" or all(
@@ -271,6 +329,34 @@ async def handle_cost_estimation(
             "estimate_high_huf": estimate.get("estimate_high_huf", 0),
         }
 
+        # --- Green Team human-in-the-loop gate --------------------------------
+        # Confidence reuses the existing data-scarcity signal the handler already
+        # produces (the "< 3 similar quotes" warning). This mirrors the legacy
+        # FastAPI model_confidence invariant ("high" when >= 3 similar quotes).
+        # The estimate numbers above are untouched; only gate metadata is added.
+        if green_team_service is None:
+            green_team_service = GreenTeamService()
+        num_similar = len(similar)
+        if num_similar >= 3:
+            model_confidence = 0.85
+        elif num_similar >= 1:
+            model_confidence = 0.60
+        else:
+            model_confidence = 0.45
+        _green_team = await _green_team_gate(
+            green_team_service,
+            trace_id=trace_id,
+            user_intent="cost_estimation",
+            proposed_action="produce_estimate",
+            confidence=model_confidence,
+            semantic_risk="low",
+            proposed_response={
+                "estimate_mid_huf": base_mid,
+                "num_similar_quotes": num_similar,
+                "warnings": warnings,
+            },
+        )
+
         return {
             "status": "ok",
             "data": {
@@ -288,6 +374,7 @@ async def handle_cost_estimation(
                     {"id": c["id"], "cost_point": c["base_cost_point"] + c["per_sqm_cost_point"] * area_sqm, "description": c["description"]}
                     for c in active_chains
                 ],
+                **_green_team,
             },
             "trace_id": trace_id,
         }
@@ -321,7 +408,9 @@ async def handle_ingestion(
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="ingestion", action="spawn_sandbox",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -398,7 +487,9 @@ async def handle_market_analysis(
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="market_analyst", action="execute_sql",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -443,6 +534,7 @@ async def handle_due_diligence(
     policy_service: Any,
     skill_registry: Any,
     trace_id: str,
+    green_team_service: GreenTeamService | None = None,
 ) -> dict[str, Any]:
     """
     Due Diligence Advisor handler.
@@ -455,13 +547,15 @@ async def handle_due_diligence(
     Output contract:
       { "questions_for_seller": [...], "inspection_checklist": [...],
         "red_flags": [...], "overall_risk": str, "summary_hu": str,
-        "sources_cited": [...] }
+        "sources_cited": [...], "needs_intervention": bool }
     """
     sr = policy_service.check_structural("due_diligence", "generate_advisory", trace_id)
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="due_diligence", action="generate_advisory",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -492,7 +586,7 @@ async def handle_due_diligence(
             floor_area_sqm=params.get("area_sqm", 55.0),
             num_rooms=params.get("num_rooms", 2),
             building_type=params.get("building_type", "tégla"),
-            building_era_approx=params.get("building_era", "1960_1990"),
+            building_era_approx=params.get("building_era", 1975),
             current_condition=params.get("condition", "közepes"),
             known_issues=params.get("known_issues", []),
             has_seen_in_person=params.get("has_seen_in_person", False),
@@ -538,6 +632,24 @@ async def handle_due_diligence(
             gemini_config=gemini_config,
         )
 
+        # --- Green Team human-in-the-loop gate --------------------------------
+        # Reuse the existing semantic risk level (report.overall_risk); there is
+        # no confidence score in this path, so a neutral baseline confidence is
+        # passed and the risk level is the driving signal.
+        if green_team_service is None:
+            green_team_service = GreenTeamService()
+        _green_team = await _green_team_gate(
+            green_team_service,
+            trace_id=trace_id,
+            user_intent="due_diligence",
+            proposed_action="generate_advisory",
+            confidence=0.90,
+            semantic_risk={
+                "alacsony": "low", "közepes": "medium", "magas": "high",
+            }.get(report.overall_risk, "low"),
+            proposed_response={"overall_risk": report.overall_risk},
+        )
+
         return {
             "status": "ok",
             "data": {
@@ -553,6 +665,7 @@ async def handle_due_diligence(
                 "overall_risk": report.overall_risk,
                 "summary_hu": report.summary_hu,
                 "sources_cited": report.rag_sources_used,
+                **_green_team,
             },
             "trace_id": trace_id,
         }
@@ -575,6 +688,7 @@ async def handle_expert_interview(
     policy_service: Any,
     skill_registry: Any,
     trace_id: str,
+    green_team_service: GreenTeamService | None = None,
 ) -> dict[str, Any]:
     """
     Expert Interviewer handler — building-physics inspection and red-flag
@@ -589,13 +703,16 @@ async def handle_expert_interview(
     Output contract:
       { "red_flags": [...], "overall_risk": str, "summary_hu": str,
         "inspection_checklist": [...], "questions_for_seller": [...],
-        "recommended_experts": [...], "confidence": {...} }
+        "recommended_experts": [...], "confidence": {...},
+        "needs_intervention": bool }
     """
     sr = policy_service.check_structural("expert_interviewer", "assess_risk", trace_id)
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="expert_interviewer", action="assess_risk",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -739,6 +856,23 @@ async def handle_expert_interview(
         + ("A legkritikusabb: kohósalak a födémben." if has_slag else "")
     )
 
+    # --- Green Team human-in-the-loop gate --------------------------------
+    # Reuse the existing computed risk level (overall_risk) and confidence
+    # score already produced above.
+    if green_team_service is None:
+        green_team_service = GreenTeamService()
+    _green_team = await _green_team_gate(
+        green_team_service,
+        trace_id=trace_id,
+        user_intent="expert_interview",
+        proposed_action="assess_risk",
+        confidence=confidence_score,
+        semantic_risk={
+            "LOW": "low", "MEDIUM": "medium", "HIGH": "high", "CRITICAL": "critical",
+        }.get(overall_risk, "low"),
+        proposed_response={"overall_risk": overall_risk, "num_red_flags": num_red_flags},
+    )
+
     return {
         "status": "ok",
         "data": {
@@ -753,6 +887,7 @@ async def handle_expert_interview(
                 "score": confidence_score,
                 "reasoning": confidence_reasoning,
             },
+            **_green_team,
         },
         "trace_id": trace_id,
     }
@@ -792,7 +927,9 @@ async def handle_construction_planning(
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
-    sem = await policy_service.check_semantic(params, trace_id)
+    sem = await policy_service.check_semantic(
+        params, trace_id, role="construction_planner", action="generate_sequence",
+    )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
 
@@ -841,6 +978,7 @@ async def handle_construction_planning(
         district=params.get("district", 5),
         total_area_sqm=area_sqm,
         num_rooms=params.get("num_rooms", 2),
+        building_type=params.get("building_type"),
         building_era=era_int if era_int != 9999 else None,
         needs_plumbing=scope.get("plumbing", is_full_renovation),
         needs_electrical=scope.get("electrical", is_full_renovation),
@@ -872,7 +1010,9 @@ async def handle_construction_planning(
     # Material/labor split uses the codebase-standard 55/45 ratio.
     _LABOR_SHARE = 0.55
 
-    def _phase_from_scope(scope_name: str):
+    def _phase_from_scope(
+        scope_name: str,
+    ) -> tuple[int | None, int | None, int | None, int | None, str]:
         """Return (mat_low, mat_high, lab_low, lab_high, data_source) from corpus."""
         c = categories.get(scope_name, {})
         if not c or not c.get("estimate_huf"):
@@ -899,7 +1039,7 @@ async def handle_construction_planning(
         detect_active_chains, chain_total_cost,
         apply_infrastructure_minimums,
         compute_logistics_surcharge, elevator_surcharge,
-        chimney_technician_cost,
+        chimney_technician_cost, CostBreakdownOutput,
     )
 
     phases: list[dict] = []
@@ -964,6 +1104,16 @@ async def handle_construction_planning(
     chain_costs = chain_total_cost(
         active_chains, area_sqm=area_sqm,
         target_date=target_date, price_index=price_index,
+    )
+    # Pydantic guard: fail loudly if a triggered chain is missing from the
+    # breakdown instead of silently returning 0.
+    CostBreakdownOutput(
+        chain_ids_applied=[c["id"] for c in active_chains],
+        chain_cost_huf=chain_costs["point"],
+        building_era=building_era,
+        scope=scope,
+        floor_number=floor_number,
+        gas_heating=gas_heating,
     )
     if chain_costs["point"]:
         chain = active_chains[0]

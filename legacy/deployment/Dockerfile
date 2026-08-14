@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir .
 
 # Copy project code
 COPY renovai/ ./renovai/
-COPY mcp_server/ ./mcp_server/
+COPY legacy/mcp_server/ ./legacy/mcp_server/
 COPY scripts/ ./scripts/
 
 # Copy baked-in data (model, vector store, quotes, inflation CSVs)
@@ -30,4 +30,4 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8080
 
-CMD ["python", "-m", "mcp_server.server"]
+CMD ["python", "-m", "legacy.mcp_server.server"]

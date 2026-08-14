@@ -34,6 +34,13 @@ class AuditEntry:
     semantic_check_passed: bool
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
+    # Per-policy-check context (added for per-check audit entries; all default
+    # to None so pre-existing request-level entries remain fully loadable).
+    role: str | None = None
+    action: str | None = None
+    resource: str | None = None
+    decision: str | None = None     # "allow" | "deny"
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "entry_id": self.entry_id,
@@ -48,6 +55,10 @@ class AuditEntry:
             "structural_check_passed": self.structural_check_passed,
             "semantic_check_passed": self.semantic_check_passed,
             "timestamp": self.timestamp,
+            "role": self.role,
+            "action": self.action,
+            "resource": self.resource,
+            "decision": self.decision,
         }
 
     def to_json(self) -> str:
@@ -85,9 +96,14 @@ class AuditStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
     def append(self, entry: AuditEntry) -> None:
-        """Append an audit entry. This is the only write operation."""
+        """Append an audit entry. This is the only write operation.
+
+        Each line is one compact JSON blob so the file is a true JSONL
+        (json.dumps with indent=2 would span multiple lines and break
+        read_all()/count()).
+        """
         with open(self._path, "a", encoding="utf-8") as f:
-            f.write(entry.to_json() + "\n")
+            f.write(json.dumps(entry.to_dict(), ensure_ascii=False) + "\n")
         logger.info("[%s] Audit entry appended: %s", entry.trace_id, entry.entry_id)
 
     def read_all(self) -> list[AuditEntry]:
@@ -117,6 +133,43 @@ class AuditStore:
                 if line.strip():
                     count += 1
         return count
+
+    def record_policy_check(
+        self,
+        trace_id: str,
+        role: str,
+        action: str,
+        resource: str,
+        decision: str,
+        check_type: str,
+    ) -> AuditEntry:
+        """Append an audit entry for a resolved policy check.
+
+        Used by PolicyService after every check_structural / check_semantic
+        call resolves (allow or deny), so every gate decision is retrievable
+        per trace_id.
+        """
+        entry = AuditEntry(
+            entry_id=f"ae-{uuid.uuid4().hex[:12]}",
+            trace_id=trace_id,
+            action_type=f"{check_type}_check",
+            user_intent=action,
+            agent_response_summary=(
+                f"{decision}: role={role}, action={action}, resource={resource}"
+            ),
+            confidence_score=0.0,
+            vibe_diff_id=None,
+            human_approval_timestamp=None,
+            human_reviewer=None,
+            structural_check_passed=(check_type == "structural" and decision == "allow"),
+            semantic_check_passed=(check_type == "semantic" and decision == "allow"),
+            role=role,
+            action=action,
+            resource=resource,
+            decision=decision,
+        )
+        self.append(entry)
+        return entry
 
     def export_to_bigquery(self) -> list[dict[str, Any]]:
         """Return all entries as dicts, ready for BigQuery streaming insert."""

@@ -77,10 +77,16 @@ def main():
     
     era = Prompt.ask(
         "Mikor épült az épület (kb.)?",
-        choices=["1945_előtt", "1945_1970", "1970_1990", "1990_2010", "2010_után", "ismeretlen"],
-        default="1945_1970"
+        choices=["1945 előtt", "1945–1970", "1970–1990", "1990–2010", "2010 után", "ismeretlen"],
+        default="1945–1970"
     )
-    era_val = None if era == "ismeretlen" else era
+    era_val = None if era == "ismeretlen" else {
+        "1945 előtt": 1930,
+        "1945–1970": 1960,
+        "1970–1990": 1980,
+        "1990–2010": 2000,
+        "2010 után": 2015,
+    }[era]
     
     condition = Prompt.ask(
         "Milyen a lakás jelenlegi állapota?",

@@ -37,7 +37,7 @@ class FakePolicyService:
     def check_structural(self, role: str, action: str, trace_id: str) -> PolicyCheckResult:
         return self._result
 
-    async def check_semantic(self, args: dict, trace_id: str):
+    async def check_semantic(self, args: dict, trace_id: str, **kwargs):
         return PolicyCheckResult(
             passed=True, reason="test-gate", trace_id=trace_id, check_type="semantic"
         )
@@ -103,6 +103,31 @@ async def test_handle_cost_estimation_completes_with_sane_estimate():
     # Similar quotes come back ranked (would have raised AttributeError before the fix)
     assert isinstance(data["similar_quotes"], list)
     assert data["similar_quotes"][0]["distance"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_building_type_passed_through_to_apartment_input(monkeypatch):
+    """building_type from the UI must reach ApartmentInput (previously dropped)."""
+    import renovai.predictor.feature_extractor as fe
+    from orchestrator.handlers import handle_cost_estimation
+
+    captured = {}
+
+    class _SpyApartmentInput(fe.ApartmentInput):
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(fe, "ApartmentInput", _SpyApartmentInput)
+
+    result = await handle_cost_estimation(
+        realistic_params(building_type="panel"),
+        policy_service=FakePolicyService(),
+        skill_registry=FakeSkillRegistry(),
+        trace_id="test-trace",
+    )
+    assert result["status"] == "ok", f"handler errored: {result.get('error')}"
+    assert captured.get("building_type") == "panel"
 
 
 # ---------------------------------------------------------------------------
@@ -619,7 +644,7 @@ class _FakePolicy_:
     def check_structural(self, r, a, t):
         return PolicyCheckResult(True, "ok", t, "structural")
 
-    async def check_semantic(self, a, t):
+    async def check_semantic(self, a, t, **kwargs):
         return PolicyCheckResult(True, "ok", t, "semantic")
 
 

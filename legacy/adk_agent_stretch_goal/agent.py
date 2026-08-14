@@ -8,10 +8,10 @@ in Hungarian with citations.
 
 Usage:
     # Start the MCP server in a terminal first:
-    uv run python -m mcp_server.server
+    uv run python -m legacy.mcp_server.server
 
     # Then run the orchestrator in another terminal:
-    uv run python -m orchestrator.agent "55 m²-es lakást nézek a 8. kerületben..."
+    uv run python -m legacy.adk_agent_stretch_goal.agent "55 m²-es lakást nézek a 8. kerületben..."
 
 Architecture:
     - Uses Lomas (google.adk) Agent primitive with MCP tool integration
@@ -29,7 +29,7 @@ import asyncio
 import json
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from dotenv import load_dotenv
 
@@ -79,7 +79,7 @@ async def _adk_flow(question_hu: str) -> str:
     mcp_tool = MCPTool(
         server_name="renovai",
         command=sys.executable,
-        args=["-m", "mcp_server.server"],
+        args=["-m", "legacy.mcp_server.server"],
     )
     root_agent.tools.append(mcp_tool)
 
@@ -129,8 +129,8 @@ def _fallback_flow(question_hu: str, reason: str = "") -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python -m orchestrator.agent <Hungarian question>")
-        print("Example: python -m orchestrator.agent \"55 m²-es lakást nézek a 8. kerületben, villany és vízvezeték is kell, mennyit költsek felújításra és mire figyeljek vásárlás előtt?\"")
+        print("Usage: python -m legacy.adk_agent_stretch_goal.agent <Hungarian question>")
+        print("Example: python -m legacy.adk_agent_stretch_goal.agent \"55 m²-es lakást nézek a 8. kerületben, villany és vízvezeték is kell, mennyit költsek felújításra és mire figyeljek vásárlás előtt?\"")
         sys.exit(1)
 
     question = " ".join(sys.argv[1:])

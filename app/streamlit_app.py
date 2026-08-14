@@ -75,6 +75,8 @@ LANG = {
         "tab1.risk_label": "Összesített kockázat: **{risk}**",
         "tab1.summary_label": "Összefoglaló",
         "tab1.confidence_label": "Megbízhatóság: {score}",
+        "tab1.green_team_label": "⚠️ Ez az eredmény felülvizsgálatot igényel (Green Team ellenőrzés).",
+        "tab1.green_team_hint": "Az eredmény megjelenik, de szakértői áttekintés javasolt a döntés előtt.",
 
         "tab2.subtitle": "Felújítási Tervező — Részletes terv és költségvetés",
         "tab2.desc": "Add meg a lakás adatait, és válaszd ki a felújítás típusát. A rendszer ütemtervet és költségbecslést készít.",
@@ -206,6 +208,8 @@ LANG = {
         "tab1.risk_label": "Overall Risk: **{risk}**",
         "tab1.summary_label": "Summary",
         "tab1.confidence_label": "Confidence: {score}",
+        "tab1.green_team_label": "⚠️ This result requires human review (Green Team check).",
+        "tab1.green_team_hint": "The result is shown, but an expert review is recommended before deciding.",
 
         "tab2.subtitle": "Renovation Planner — Detailed Plan & Budget",
         "tab2.desc": "Enter the apartment details and select the renovation type. The system generates a phased plan and cost estimate.",
@@ -625,6 +629,10 @@ if tab_selection == _("nav.tab1"):
                                   score=f"{conf.get('score', 0):.0%}")
                             )
 
+                        if data.get("needs_intervention"):
+                            st.warning(_("tab1.green_team_label"))
+                            st.caption(_("tab1.green_team_hint"))
+
                 except Exception as exc:
                     logger.error("Pre-visit report error", exc_info=True)
                     st.error(_("tab1.error"))
@@ -855,6 +863,7 @@ elif tab_selection == _("nav.tab2"):
 
                     plan_params = {
                         "area_sqm": area_sqm,
+                        "building_type": building_type_t2,
                         "building_era": era_year_t2,
                         "floor_construction": floor_map_t2.get(floor_construction_t2, ""),
                         "wall_condition": wall_cond,

@@ -18,7 +18,7 @@ Deployment script for Agent Runtime.
 Builds the agent engine locally and deploys it to Agent Runtime via
 the Vertex AI SDK. Intended to be called by CI/CD or directly:
 
-    uv run python -m app.app_utils.deploy --project=... --region=...
+    uv run python -m legacy.adk_agent.app_utils.deploy --project=... --region=...
 """
 
 import argparse
@@ -28,13 +28,13 @@ import re
 import subprocess
 from pathlib import Path
 
-PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
+PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 
 def export_requirements():
     """Export locked requirements from uv lockfile, stripping comments and editable installs."""
-    raw_path = PROJECT_DIR / "app" / "app_utils" / ".requirements-raw.txt"
-    clean_path = PROJECT_DIR / "app" / "app_utils" / ".requirements.txt"
+    raw_path = PROJECT_DIR / "legacy" / "adk_agent" / "app_utils" / ".requirements-raw.txt"
+    clean_path = PROJECT_DIR / "legacy" / "adk_agent" / "app_utils" / ".requirements.txt"
     subprocess.run(
         ["uv", "export", "--no-dev", "--no-hashes", "-o", str(raw_path)],
         check=True, cwd=str(PROJECT_DIR),
@@ -55,9 +55,9 @@ def deploy(args: argparse.Namespace):
 
     req_path = export_requirements()
     extra_packages = [
-        str(PROJECT_DIR / "app"),
-        str(PROJECT_DIR / "mcp_server"),
-        str(PROJECT_DIR / "orchestrator"),
+        str(PROJECT_DIR / "legacy" / "adk_agent"),
+        str(PROJECT_DIR / "legacy" / "mcp_server"),
+        str(PROJECT_DIR / "legacy" / "adk_agent_stretch_goal"),
         str(PROJECT_DIR / "sandbox"),
         str(PROJECT_DIR / "renovai"),
         str(PROJECT_DIR / "demo"),
@@ -86,7 +86,7 @@ def deploy(args: argparse.Namespace):
         staging_bucket=args.staging_bucket,
     )
 
-    from app.agent_runtime_app import _build_agent_runtime
+    from legacy.adk_agent.agent_runtime_app import _build_agent_runtime
     local_agent = _build_agent_runtime()
 
     env_vars = {
