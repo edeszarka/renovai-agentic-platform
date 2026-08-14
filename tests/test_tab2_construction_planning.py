@@ -177,6 +177,31 @@ class TestInfrastructureMinimumsThroughHandler:
         # logistics surcharge is skipped too.
         assert [p for p in phases if p.get("is_infrastructure_minimum")] == []
 
+    def test_building_type_passed_through_to_apartment_input(self, monkeypatch):
+        """The Tab 2 selectbox value must reach ApartmentInput, fixing the
+        dead building_type UI field (previously collected but never sent)."""
+        import renovai.predictor.feature_extractor as fe
+
+        captured = {}
+
+        class _SpyApartmentInput(fe.ApartmentInput):
+            def __init__(self, *args, **kwargs):
+                captured.update(kwargs)
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(fe, "ApartmentInput", _SpyApartmentInput)
+
+        params = _full_params(gas_heating=False)
+        params["building_type"] = "panel"
+        result = _run(params)
+        assert result["status"] == "ok"
+        assert captured.get("building_type") == "panel"
+
+    def test_building_type_optional_default_none(self):
+        """Omitting building_type must not break the handler."""
+        result = _run(_full_params(gas_heating=False))
+        assert result["status"] == "ok"
+
 
 class TestBelowMinimumTopUpMatchesSharedFunction:
     def test_two_call_split_equals_single_combined_call(self):

@@ -863,6 +863,7 @@ elif tab_selection == _("nav.tab2"):
 
                     plan_params = {
                         "area_sqm": area_sqm,
+                        "building_type": building_type_t2,
                         "building_era": era_year_t2,
                         "floor_construction": floor_map_t2.get(floor_construction_t2, ""),
                         "wall_condition": wall_cond,

@@ -48,6 +48,7 @@ class QuoteFeatures(BaseModel):
     district: int
     total_area_sqm: Optional[float] = None
     num_rooms: Optional[int] = None
+    building_type: Optional[str] = None
     building_era: Optional[int] = None
 
     # Derived scope features
@@ -71,6 +72,7 @@ class ApartmentInput(BaseModel):
     district: int
     total_area_sqm: float
     num_rooms: int
+    building_type: Optional[str] = None
     building_era: Optional[int] = None
     
     # Renovation scope
@@ -177,6 +179,7 @@ def apartment_input_to_features(inp: ApartmentInput) -> QuoteFeatures:
         district=inp.district,
         total_area_sqm=inp.total_area_sqm,
         num_rooms=inp.num_rooms,
+        building_type=inp.building_type,
         building_era=inp.building_era,
         has_plumbing_work=inp.needs_plumbing,
         has_electrical_work=inp.needs_electrical,

@@ -105,6 +105,31 @@ async def test_handle_cost_estimation_completes_with_sane_estimate():
     assert data["similar_quotes"][0]["distance"] >= 0
 
 
+@pytest.mark.asyncio
+async def test_building_type_passed_through_to_apartment_input(monkeypatch):
+    """building_type from the UI must reach ApartmentInput (previously dropped)."""
+    import renovai.predictor.feature_extractor as fe
+    from orchestrator.handlers import handle_cost_estimation
+
+    captured = {}
+
+    class _SpyApartmentInput(fe.ApartmentInput):
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(fe, "ApartmentInput", _SpyApartmentInput)
+
+    result = await handle_cost_estimation(
+        realistic_params(building_type="panel"),
+        policy_service=FakePolicyService(),
+        skill_registry=FakeSkillRegistry(),
+        trace_id="test-trace",
+    )
+    assert result["status"] == "ok", f"handler errored: {result.get('error')}"
+    assert captured.get("building_type") == "panel"
+
+
 # ---------------------------------------------------------------------------
 # Item H — district must not influence find_similar_quotes() ranking
 # ---------------------------------------------------------------------------
