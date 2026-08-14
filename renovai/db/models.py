@@ -1,12 +1,23 @@
+import enum
 import uuid
 from datetime import date, datetime
 from typing import List, Optional
 from uuid import uuid4
-from sqlalchemy import ForeignKey, UniqueConstraint, text
+from sqlalchemy import Enum, ForeignKey, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     pass
+
+class BuildingType(str, enum.Enum):
+    """Canonical building taxonomy (doc 01). Values are ASCII-safe keys;
+    labels (lakás: tégla/panel/csúszózsalus, ház: könnyűszerkezetes/tégla családi ház/vályog vegyes) live in the backfill + UI."""
+    TEGLA = "tegla"
+    PANEL = "panel"
+    CSUSZOZSALUS = "csuszozsalus"
+    KONNYUSZERKEZETES = "konnyuszerkezetes"
+    TEGLA_CSALADI_HAZ = "teglacsaladihaz"
+    VALYOG_VEGYES = "valyog_vegyes"
 
 class Quote(Base):
     __tablename__ = "quotes"
@@ -25,6 +36,10 @@ class Quote(Base):
     timeline_weeks_max: Mapped[Optional[int]]
     payment_schedule: Mapped[Optional[str]]
     has_slag_complication: Mapped[bool] = mapped_column(default=False)
+    building_type: Mapped[Optional[BuildingType]] = mapped_column(
+        Enum(BuildingType), nullable=True
+    )
+    building_era: Mapped[Optional[int]]
     area_sqm: Mapped[Optional[float]]
     ceiling_height: Mapped[Optional[float]]
     elevator_type: Mapped[Optional[str]]
