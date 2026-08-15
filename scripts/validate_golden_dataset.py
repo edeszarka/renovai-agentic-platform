@@ -42,7 +42,7 @@ from renovai.predictor.product_pricing import (
 
 GOLDEN_JSON = Path("renovai/evals/golden_dataset.json")
 
-REF_AREA = 30.0  # CHAIN_RULES calibration reference area (m²)
+REF_AREA = 55.0  # CHAIN_RULES calibration reference area (m²) — doc 03 item 3 type 1
 
 
 def _load_cases() -> list[dict]:
@@ -56,17 +56,16 @@ def _load_cases() -> list[dict]:
 
 def check_008(case: dict) -> list[dict]:
     """ajto_padlo_lanc_pre1970_008 — pre-1970 tégla + door/floor triggers the
-    full-slag chain. The rubric pins the chain to 2.5-3.0M point 2.75M, which
-    corresponds to the 30 m² reference area, NOT the case's stated 55 m²."""
+    full-slag chain. The rubric pins the chain to 2.0-2.85M point 2.425M at the
+    55 m² reference (doc 03 item 3 type 1: anyag 0.70-0.85M + munkadíj 1.3-2.0M)."""
     p = case["input"]["params"]
     scope = {k: bool(v) for k, v in p.get("scope_flags", {}).items()}
     era = str(p.get("building_era", ""))
     btype = p.get("building_type")
     active = detect_active_chains(scope, era, floor_number=1, gas_heating=False, building_type=btype)
     ids = [c["id"] for c in active]
-    cost30 = chain_total_cost(active, area_sqm=REF_AREA)["point"]
-    # The case input says 55 m² but the expected figure is the 30 m² reference.
-    cost55 = chain_total_cost(active, area_sqm=float(p.get("area_sqm", 55)))["point"]
+    cost_ref = chain_total_cost(active, area_sqm=REF_AREA)["point"]
+    cost_case = chain_total_cost(active, area_sqm=float(p.get("area_sqm", 55)))["point"]
 
     return [
         {
@@ -80,15 +79,14 @@ def check_008(case: dict) -> list[dict]:
             "detail": f"active={ids}",
         },
         {
-            "bullet": "chain_cost 2.5-3.0M point 2.75M (at 30 m² reference)",
-            "ok": 2_500_000 <= cost30 <= 3_000_000,
-            "detail": f"point@{REF_AREA}m²={cost30:,}",
+            "bullet": "chain_cost 2.0-2.85M point 2.425M (at 55 m² reference)",
+            "ok": 2_000_000 <= cost_ref <= 2_850_000,
+            "detail": f"point@{REF_AREA}m²={cost_ref:,}",
         },
         {
             "bullet": "chain figures consistent with stated area (55 m²)",
-            "ok": 2_500_000 <= cost55 <= 3_000_000,
-            "detail": f"point@55m²={cost55:,} (area-scaled) — NOTE: golden pins the "
-                      f"30 m² reference, not 55 m²",
+            "ok": 2_000_000 <= cost_case <= 2_850_000,
+            "detail": f"point@{p.get('area_sqm', 55)}m²={cost_case:,} (area-scaled)",
         },
     ]
 

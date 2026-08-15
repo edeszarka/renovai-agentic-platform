@@ -160,19 +160,22 @@ CHAIN_RULES: List[ChainEntry] = [
             "Új padló előkészítése",
         ],
         # Area-scaled: base_cost + per_sqm_cost * area
-        # Calibrated so that at 30 m² the values match the original fixed costs.
-        "base_cost_low": 1_210_000,
-        "per_sqm_cost_low": 43_000,
-        "base_cost_high": 1_770_000,
-        "per_sqm_cost_high": 41_000,
-        "base_cost_point": 1_490_000,
-        "per_sqm_cost_point": 42_000,
+        # Sourced from doc 03 item 3 type 1 (kohósalak/homok alatti egyenes
+        # aljzat, 55 nm reference): anyag 0.70-0.85M + munkadíj 1.3-2.0M
+        # = 2.0-2.85M HUF total. Calibrated so that at 55 m² the values
+        # reproduce that total exactly.
+        "base_cost_low": 900_000,
+        "per_sqm_cost_low": 20_000,
+        "base_cost_high": 1_475_000,
+        "per_sqm_cost_high": 25_000,
+        "base_cost_point": 1_215_000,
+        "per_sqm_cost_point": 22_000,
         "description": (
             "Ajtó/Padló-lánc: régi épületben az ajtócsere vagy parketta felbontása "
             "során előkerülő kohósalak miatt szükséges teljes salakmentesítés, "
             "szigetelés és új aljzat kialakítása."
         ),
-        "note": "Expert-sourced figure (2.5-3.0M HUF at 30 m²). Scales with area for EPS, concrete, flooring. Doc 02 §A; FAZIS_A_FINDINGS.md §5 'Salak 12–15 cm (A) vs 1–3 cm misung (B/C)'.",
+        "note": "Sourced from doc 03 item 3 type 1 (kohósalak/homok alatti egyenes aljzat, 55 nm reference): anyag 0.70-0.85M + munkadíj 1.3-2.0M = 2.0-2.85M HUF. Scales with area for EPS, concrete, flooring. Doc 02 §A; FAZIS_A_FINDINGS.md §5 'Salak 12–15 cm (A) vs 1–3 cm misung (B/C)'.",
     },
     {
         "id": "misung_subfloor_leveling",
@@ -224,14 +227,15 @@ def detect_active_chains(
 
 def chain_total_cost(
     active_chains: List[ChainEntry],
-    area_sqm: float = 30.0,
+    area_sqm: float = 55.0,
     target_date: Optional[date] = None,
     price_index: Any = None,
 ) -> Dict[str, int]:
     """Compute total chain cost, area-scaled.
 
     Each chain's cost = base_cost + per_sqm_cost * area_sqm.
-    At the reference area (30 m²) the result matches the original fixed figures.
+    At the reference area (55 m²) the result matches the original fixed figures
+    (doc 03 item 3 type 1 for the full-slag chain).
 
     Chain constants are dated to the 2025 expert reference; when target_date
     and price_index are supplied the result is inflated 2025 -> target_date.

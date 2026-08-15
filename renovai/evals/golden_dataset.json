@@ -331,12 +331,12 @@
       }
     },
     "expected_output": {
-      "summary_hu": "1960 előtti épületben a padlómunka és ajtócsere kohósalak láncreakciót indíthat el. A teljes aljzatfelújítás (salakmentesítés, EPS szigetelés, betonozás, szintkiegyenlítés) 2.5-3 millió Ft plusz anyagköltséggel jár a szokásos padló- és ajtómunkákon felül.",
+      "summary_hu": "1960 előtti épületben a padlómunka és ajtócsere kohósalak láncreakciót indíthat el. A teljes aljzatfelújítás (salakmentesítés, EPS szigetelés, betonozás, szintkiegyenlítés) 2.0-2.85 millió Ft plusz anyagköltséggel jár a szokásos padló- és ajtómunkákon felül.",
       "chain_active": true,
       "chain_id": "ajto_padlo_lanc",
-      "chain_cost_low_huf": 2500000,
-      "chain_cost_high_huf": 3000000,
-      "chain_cost_point_huf": 2750000,
+      "chain_cost_low_huf": 2000000,
+      "chain_cost_high_huf": 2850000,
+      "chain_cost_point_huf": 2425000,
       "chain_steps": [
         "Ajtócsere/parketta felszedés → salak feltárul",
         "Salak kitermelés és elszállítás",
@@ -345,14 +345,14 @@
         "Szintkiegyenlítés",
         "Új padló előkészítése"
       ],
-      "note": "Expert-sourced figure (2.5-3.0M HUF). Not yet validated against corpus."
+      "note": "Sourced from doc 03 item 3 type 1 (kohósalak/homok alatti egyenes aljzat, 55 nm reference): anyag 0.70-0.85M + munkadíj 1.3-2.0M = 2.0-2.85M HUF."
     },
     "rubric": [
       "must_identify_slag_chain_is_triggered",
-      "must_return_exact_chain_cost_range_2_5m_3m_huf",
-      "must_return_chain_cost_point_2_75m_huf",
+      "must_return_exact_chain_cost_range_2_0m_2_85m_huf",
+      "must_return_chain_cost_point_2_425m_huf",
       "must_describe_all_6_chain_steps_in_order",
-      "must_note_it_is_an_expert_sourced_figure",
+      "must_cite_doc_03_item_3_type_1_source",
       "must_warn_about_hidden_technological_chain"
     ]
   },
