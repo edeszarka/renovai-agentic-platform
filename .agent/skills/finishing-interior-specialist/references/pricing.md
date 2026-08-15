@@ -1,5 +1,13 @@
 # Finishing & Interior — Reference Pricing
 
+> **Single source of truth (owner-purchased, doc 04):** the *tulajdonosi
+> beszerzés* product tables below (csempe/járólap kategóriák §1,
+> laminált §4, beltéri festék árak §3, beltéri ajtók §6) are mirrored in
+> `renovai/predictor/product_pricing.py` — the canonical structured
+> product-pricing catalog that the estimate handlers consume at runtime.
+> Edit the Python module, not this markdown, when prices change; this file
+> remains as the human-readable reference.
+
 ## 1. Burkolás (Tiling) — Munkadíj és Anyag nm árak
 
 ### Munkadíj lapméret szerint

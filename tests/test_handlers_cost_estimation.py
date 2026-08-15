@@ -829,3 +829,76 @@ async def test_windows_doors_stays_unit_based_not_fallback():
     assert wd["data_source"] == "hardcoded_2025", (
         f"windows_doors should stay hardcoded_2025 (unit-based), got {wd['data_source']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Owner-purchased (tulajdonosi beszerzés) product pricing wiring (doc 04)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_owner_purchased_items_add_phase_to_construction_planning():
+    from orchestrator.handlers import handle_construction_planning
+
+    params = {
+        "area_sqm": 55.0, "building_era": "1980", "renovation_scope": "full",
+        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
+        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
+                        "demolition": True},
+        "owner_purchased": {
+            "tier": "kozep_kozep",
+            "tiles_sqm": 45,
+            "sanitary": True,
+            "appliances": ["hob_fozolap", "oven_suto"],
+        },
+    }
+    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t7")
+    assert result["status"] == "ok", f"handler errored: {result.get('error')}"
+    phases = {p["name"]: p for p in result["data"]["phases"]}
+
+    owner = phases.get("Tulajdonosi beszerzés (termékek)")
+    assert owner is not None
+    assert owner["data_source"] == "product_catalog_doc04"
+    assert owner["items"], "owner-purchased details should be populated"
+    names = {i["item"] for i in owner["items"]}
+    assert "Csempe/járólap (60x60, 45 nm)" in names
+    assert "Szaniter csomag" in names
+    assert owner["material_cost_range"] != "0 Ft"
+
+    # Estimate must be strictly higher with owner-purchased items.
+    base = await handle_construction_planning(
+        {k: v for k, v in params.items() if k != "owner_purchased"},
+        _FakePolicy_(), _FakeRegistry_(), "t8",
+    )
+    assert result["data"]["total_estimate"]["mid_huf"] > base["data"]["total_estimate"]["mid_huf"]
+
+
+@pytest.mark.asyncio
+async def test_owner_purchased_items_reflected_in_cost_estimation():
+    from orchestrator.handlers import handle_cost_estimation
+
+    params = realistic_params(
+        owner_purchased={
+            "tier": "premium",
+            "tiles_sqm": 45,
+            "laminate_sqm": 40,
+            "kitchen": True,
+        }
+    )
+    result = await handle_cost_estimation(
+        params, policy_service=FakePolicyService(),
+        skill_registry=FakeSkillRegistry(), trace_id="t9",
+    )
+    assert result["status"] == "ok", f"handler errored: {result.get('error')}"
+    data = result["data"]
+    assert data["owner_purchased_items"], "owner_purchased_items should be populated"
+    assert data["adjustments"]["owner_purchased_huf"] > 0
+    # Kitchen (premium 3-4.5 M) alone dwarfs the grout/wood subtotal.
+    assert data["adjustments"]["owner_purchased_huf"] >= 3_000_000
+
+
+def test_build_owner_purchased_items_returns_zero_without_spec():
+    from orchestrator.handlers import _build_owner_purchased_items
+    res, details, warnings = _build_owner_purchased_items({"area_sqm": 55})
+    assert res == {"low_huf": 0, "mid_huf": 0, "high_huf": 0}
+    assert details == []
+    assert warnings == []

@@ -97,6 +97,67 @@ async def test_price_monotonicity(session_maker, price_index):
 
 
 @pytest.mark.asyncio
+async def test_building_type_era_affects_estimate(session_maker, price_index):
+    """Regression: estimates must differ by building_type/building_era.
+
+    This directly tests the ORIGINAL BUG REPORT that started this whole
+    effort: two requests with identical scope and area but different
+    building_type / building_era returned identical estimates, because the
+    corpus weighting ignored the building taxonomy entirely. With the
+    type × era similarity factor, same-type-and-close-era quotes are
+    weighted up and distant matches down-weighted, so the two estimates
+    must diverge.
+    """
+    base = dict(total_area_sqm=55.0, num_rooms=2, **FULL_SCOPE)
+
+    apt_old_panel = ApartmentInput(building_type="panel", building_era=1975, **base)
+    apt_new_brick = ApartmentInput(building_type="tégla", building_era=2005, **base)
+
+    est_a = await scope_matched_estimate(
+        apt_old_panel, session_maker, price_index, TARGET_DATE
+    )
+    est_b = await scope_matched_estimate(
+        apt_new_brick, session_maker, price_index, TARGET_DATE
+    )
+
+    assert est_a is not None and est_b is not None
+
+    # Identical scope + area, but the two requests differ in type/era —
+    # the estimator must produce different estimates (not a silent no-op).
+    assert est_a["estimate_mid_huf"] != est_b["estimate_mid_huf"], (
+        "Estimates for identical scope/area but different building_type/"
+        "building_era must NOT be identical (original bug report: the "
+        "estimator ignored building taxonomy entirely)"
+    )
+
+    # The difference must be REAL weighting work, not a rounding artifact:
+    # at least one scope's similarity weights must be < 1.0 (i.e. the
+    # type/era factor actually fired and down-weighted some quote), and at
+    # least one scope's weighted per-sqm average must differ between the two
+    # requests.
+    cats_a = est_a.get("categories", {})
+    cats_b = est_b.get("categories", {})
+    sim_dropped = any(
+        any(w < 1.0 for w in scope.get("similarity_weights", []))
+        for cats in (cats_a, cats_b)
+        for scope in cats.values()
+    )
+    assert sim_dropped, (
+        "No scope applied a similarity weight < 1.0 — the building-type/era "
+        "factor is not doing any work"
+    )
+    scope_avg_differ = any(
+        cats_a.get(k, {}).get("avg_per_sqm_huf") != cats_b.get(k, {}).get("avg_per_sqm_huf")
+        for k in cats_a
+    )
+    assert scope_avg_differ, (
+        "Per-scope weighted averages are identical across the two requests "
+        "despite different building_type/building_era — the factor changed "
+        "nothing at the scope level"
+    )
+
+
+@pytest.mark.asyncio
 async def test_49_vs_99_comparison(session_maker, price_index):
     """Specifically compare the 49m2/2-room vs 99m2/4-room case.
     The old bug produced a ratio near 1.0x (only ~1M difference).

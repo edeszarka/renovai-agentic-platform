@@ -1,17 +1,25 @@
-"""Backfill building_type / building_era onto existing Quote rows.
+"""Backfill building taxonomy + floor/completeness onto existing Quote rows.
 
 Reads the canonical markdown corpus under data/processed/quotes_md/ (one file
-per quote, named identically to the source xlsx) and extracts the building
-taxonomy from each filename + front-matter ``source:``:
+per quote, named identically to the source xlsx) and extracts:
 
-* ``building_type``  — only an explicit type token (panel, családi ház,
-  csúszózsalus, könnyűszerkezetes, vályog, tégla) is honored; ambiguous /
-  absent signals are stored as NULL. Free text is intentionally NOT scanned:
-  survey of the 47-file corpus showed product terms (fűtéspanel, üvegtégla,
-  porotherm, Ytong) that would be false positives.
+* ``building_type``  — Task 2.5 rule: ``panel`` -> PANEL, ``családi ház``
+  -> TEGLA_CSALADI_HAZ, otherwise TEGLA when the text matches the corpus
+  filename grammar (an era/salak clause is present); only text that does
+  NOT look like a corpus filename stays NULL. Free text is intentionally
+  NOT scanned for product terms (fűtéspanel, üvegtégla, porotherm, Ytong)
+  that would be false positives. VÁLYOG is removed from the taxonomy.
 * ``building_era``    — canonical representative year (int). Decades map to
   their midpoint (1970-es évek -> 1975); explicit years are kept verbatim
   (1958, 2011, kb. 2005 -> 2005).
+* ``floor_number``    — from the filename: ``fsz``/``fszt``/``földszint`` ->
+  1 (ground), ``N. emelet``/``N emelet`` -> N.
+* ``renovation_completeness`` — strict literal token from the filename:
+  ``komplett`` -> "komplett", ``részleges`` -> "reszleges"; blends
+  ("majdnem komplett") are left None and reported, not force-fit.
+* ``elevator_type``   — from the free-text body: explicit "nincs lift" ->
+  "none"; conditional lift-use mentions ("ha lehet használni a liftet") ->
+  generic "present"; no mention -> None.
 
 Rows are matched by ``Quote.file_name == "<md stem>.xlsx"``. Processing is
 batched and resumable via a JSON checkpoint.
@@ -95,28 +103,112 @@ def extract_building_era(text: str) -> Optional[int]:
 
 
 def extract_building_type(text: str) -> Optional[BuildingType]:
-    """Return BuildingType when the filename names it explicitly, else None."""
+    """Classify building type from a corpus filename / front-matter source.
+
+    Task 2.5 explicit rule (derived from the Task A filename grammar):
+      * ``panel`` (word-bounded, case/accent-insensitive)  -> PANEL
+      * ``családi ház`` (clear textual evidence on one corpus file)
+                                                          -> TEGLA_CSALADI_HAZ
+      * otherwise, when the text matches the corpus grammar (an era clause
+        is present — 47/47 corpus files carry one)         -> TEGLA (default)
+      * text that does NOT look like a corpus filename      -> None
+
+    VÁLYOG is not a valid value in this pass (removed from the taxonomy).
+    Word-boundary matching keeps product terms (fűtéspanel) from counting
+    as building types; "Téglási" (a street name) is not a tégla trigger —
+    it classifies via the default only.
+    """
     low = text.lower()
-    if re.search(r"\bcsúszózsalus\b", low) or re.search(r"\bcsuszozsalus\b", low):
-        return BuildingType.CSUSZOZSALUS
-    if re.search(r"\bkönnyűszerkezetes\b", low) or re.search(r"\bkonnyuszerkezetes\b", low):
-        return BuildingType.KONNYUSZERKEZETES
-    if re.search(r"\bcsaládi\s*ház\b", low):
-        return BuildingType.TEGLA_CSALADI_HAZ
-    if re.search(r"\bvályog\b", low):
-        return BuildingType.VALYOG_VEGYES
     if re.search(r"\bpanel\b", low):
         return BuildingType.PANEL
-    if re.search(r"\btégla\b", low):
+    if re.search(r"\bcsaládi\s*ház\b", low):
+        return BuildingType.TEGLA_CSALADI_HAZ
+    if extract_building_era(text) is not None or re.search(r"\bsalak\b", low):
         return BuildingType.TEGLA
     return None
 
 
-def extract_taxonomy(filename: str, front_matter_source: Optional[str] = None) -> dict:
-    """Extract taxonomy from a corpus filename (plus optional source: front-matter).
+_FLOOR_GROUND_RE = re.compile(r"\b(?:fsz|fszt|földszint)\b")
+_FLOOR_NUM_RE = re.compile(r"\b(\d{1,2})\s*\.?\s*(?:emelet|em)\b")
+
+
+def extract_floor_number(text: str) -> Optional[int]:
+    """Return floor number from a corpus filename.
+
+    ``fsz`` / ``fszt`` / ``földszint`` (ground floor) -> 1; ``N. emelet`` /
+    ``N emelet`` -> N. Convention: floor 1 = ground floor, matching the rest
+    of the codebase (``structural_cost.elevator_surcharge`` treats
+    ``floor_number = 1`` as no-floors-above-ground, and the streamlit UI's
+    minimum is 1).
+    """
+    low = text.lower()
+    if _FLOOR_GROUND_RE.search(low):
+        return 1
+    m = _FLOOR_NUM_RE.search(low)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def extract_renovation_completeness(text: str) -> Optional[str]:
+    """Classify renovation completeness ("reszleges" | "komplett") from a file.
+
+    Strict literal-token grammar: a bare ``komplett`` token -> ``komplett``;
+    a bare ``részleges`` token -> ``reszleges``. Blends ("majdnem komplett",
+    "többnyire komplett") are NOT forced into the binary field — the strict
+    grammar has only the two literals, so those map to None and are reported
+    as "neither/unclear" in the summary rather than force-fit.
+    """
+    low = text.lower()
+    if re.search(r"\bmajdnem\s+komplett\b|\btöbbnyire\s+komplett\b", low):
+        return None
+    if re.search(r"\bkomplett\b", low):
+        return "komplett"
+    if re.search(r"\brészleges\b", low):
+        return "reszleges"
+    return None
+
+
+# Lift / elevator presence in the free-text body. Task 2C investigation found
+# conditional-use quotes ("ha lehet használni a liftet", "lifthasználat") in
+# 6/47 files, never an explicit size — so the only determinable value is a
+# generic "present" (size unknown). Any non-negated lift mention presupposes
+# a lift exists (prices are conditioned on being able to use it), so the rule
+# is: explicit absence -> "none"; any other lift word -> "present".
+_ELEVATOR_ABSENT_RE = re.compile(
+    r"\bnincs\s+lift\b|\blift\s+nélkül\b|\blift\s+nincs\b", re.IGNORECASE
+)
+_ELEVATOR_PRESENT_RE = re.compile(r"\blift\w*\b", re.IGNORECASE)
+
+
+def extract_elevator_type(full_text: Optional[str]) -> Optional[str]:
+    """Return elevator_type from a quote body: "none" | "present" | None.
+
+    Explicit absence ("nincs lift") -> "none". Any other lift mention ->
+    generic "present" (size undeterminable). No lift mention at all -> None
+    (do not force a value).
+    """
+    if not full_text:
+        return None
+    low = full_text.lower()
+    if _ELEVATOR_ABSENT_RE.search(low):
+        return "none"
+    if _ELEVATOR_PRESENT_RE.search(low):
+        return "present"
+    return None
+
+
+def extract_taxonomy(
+    filename: str,
+    front_matter_source: Optional[str] = None,
+    body_text: Optional[str] = None,
+) -> dict:
+    """Extract taxonomy + completeness from a corpus filename.
 
     The filename (md stem) is authoritative; ``source:`` is the same text in
-    normal form, so use whichever is present (filename wins on ties).
+    normal form, so use whichever is present (filename wins on ties). Floor
+    and completeness only ever come from the filename. Elevator presence is
+    read from the free-text body (body_text).
     """
     sources = [filename]
     if front_matter_source:
@@ -131,7 +223,12 @@ def extract_taxonomy(filename: str, front_matter_source: Optional[str] = None) -
             best["building_type"] = btype
         if best["building_era"] is not None and best["building_type"] is not None:
             break
-    return best
+    return {
+        **best,
+        "floor_number": extract_floor_number(filename),
+        "renovation_completeness": extract_renovation_completeness(filename),
+        "elevator_type": extract_elevator_type(body_text or ""),
+    }
 
 
 def read_front_matter_source(md_path: Path) -> Optional[str]:
@@ -143,6 +240,15 @@ def read_front_matter_source(md_path: Path) -> Optional[str]:
         return None
     m = re.search(r"^source:\s*(.+)$", head, flags=re.MULTILINE)
     return m.group(1).strip() if m else None
+
+
+def read_body(md_path: Path) -> str:
+    """Read the full markdown body (front-matter + prose) for free-text scans."""
+    try:
+        with open(md_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
 
 
 # --- DB application -----------------------------------------------------------
@@ -168,6 +274,9 @@ async def apply_backfill(
             if not dry_run:
                 db_quote.building_type = row["building_type"]
                 db_quote.building_era = row["building_era"]
+                db_quote.floor_number = row.get("floor_number")
+                db_quote.elevator_type = row.get("elevator_type")
+                db_quote.renovation_completeness = row.get("renovation_completeness")
             if row["building_type"] is None or row["building_era"] is None:
                 unresolved += 1
             else:
@@ -210,11 +319,15 @@ async def run(corpus_dir: Path, checkpoint_path: Path, batch_size: int, dry_run:
                 results[stem] = checkpoint[stem]
                 continue
             source = read_front_matter_source(md_path)
-            tax = extract_taxonomy(stem, source)
+            body = read_body(md_path)
+            tax = extract_taxonomy(stem, source, body)
             row = {
                 "file_name": f"{stem}.xlsx",
                 "building_type": tax["building_type"].value if tax["building_type"] else None,
                 "building_era": tax["building_era"],
+                "floor_number": tax["floor_number"],
+                "elevator_type": tax["elevator_type"],
+                "renovation_completeness": tax["renovation_completeness"],
                 "unresolved_fields": [
                     f for f in ("building_type", "building_era") if tax[f] is None
                 ],
@@ -231,7 +344,14 @@ async def run(corpus_dir: Path, checkpoint_path: Path, batch_size: int, dry_run:
     # Apply all extracted rows to the DB in one pass.
     engine = get_engine(os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"))
     all_rows = [
-        {"file_name": r["file_name"], "building_type": r["building_type"], "building_era": r["building_era"]}
+        {
+            "file_name": r["file_name"],
+            "building_type": r["building_type"],
+            "building_era": r["building_era"],
+            "floor_number": r["floor_number"],
+            "elevator_type": r["elevator_type"],
+            "renovation_completeness": r["renovation_completeness"],
+        }
         for r in results.values()
     ]
     applied, unresolved = await apply_backfill(all_rows, engine, dry_run=dry_run)

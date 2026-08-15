@@ -90,10 +90,36 @@ class TestChainDetection:
         assert len(chains) == 1
         assert chains[0]["id"] == "ajto_padlo_lanc"
 
-    def test_post_1970_does_not_trigger_chain(self):
+    def test_post_1970_triggers_misung_chain(self):
         scope = {"windows_doors": True, "flooring": True}
         chains = detect_active_chains(scope, "1985")
-        assert len(chains) == 0
+        assert len(chains) == 1
+        assert chains[0]["id"] == "misung_subfloor_leveling"
+
+    def test_panel_triggers_misung_chain_even_pre_1970(self):
+        scope = {"windows_doors": True}
+        chains = detect_active_chains(scope, "1960", building_type="panel")
+        assert len(chains) == 1
+        assert chains[0]["id"] == "misung_subfloor_leveling"
+
+    def test_branch_a_bc_mutually_exclusive(self):
+        # Pre-1970 tégla → full slag chain only (branch A)
+        pre70 = detect_active_chains({"flooring": True}, "1960", building_type="tégla")
+        assert [c["id"] for c in pre70] == ["ajto_padlo_lanc"]
+        # Post-1970 tégla → misung only (branch B)
+        post70 = detect_active_chains({"flooring": True}, "1985", building_type="tégla")
+        assert [c["id"] for c in post70] == ["misung_subfloor_leveling"]
+        # Panel → misung only (branch C)
+        panel = detect_active_chains({"flooring": True}, "1975", building_type="panel")
+        assert [c["id"] for c in panel] == ["misung_subfloor_leveling"]
+
+    def test_misung_chain_cost_at_reference_area(self):
+        chains = detect_active_chains({"flooring": True}, "1985")
+        costs = chain_total_cost(chains, area_sqm=55)
+        # doc 03 item 3 type 2 at 55 m² reference: base + per_sqm * 55
+        assert costs["low"] == 1_250_000
+        assert costs["high"] == 1_600_000
+        assert costs["point"] == 1_425_000
 
     def test_no_matching_scope_no_chain(self):
         scope = {"demolition": True, "plumbing": True}
@@ -107,42 +133,40 @@ class TestChainDetection:
 
     def test_chain_cost_range(self):
         chains = detect_active_chains({"windows_doors": True}, "1950")
-        costs = chain_total_cost(chains, area_sqm=30)
-        # At 30 m² the area-scaled formula matches the original fixed values
-        assert costs["low"] == 2_500_000
-        assert costs["high"] == 3_000_000
-        assert costs["point"] == 2_750_000
+        costs = chain_total_cost(chains, area_sqm=55)
+        # At 55 m² the area-scaled formula matches the doc 03 item 3 type 1 values
+        assert costs["low"] == 2_000_000
+        assert costs["high"] == 2_850_000
+        assert costs["point"] == 2_425_000
 
     def test_chain_cost_scales_with_area(self):
         chains = detect_active_chains({"windows_doors": True}, "1950")
-        costs_30 = chain_total_cost(chains, area_sqm=30)
-        costs_60 = chain_total_cost(chains, area_sqm=60)
-        costs_120 = chain_total_cost(chains, area_sqm=120)
+        costs_55 = chain_total_cost(chains, area_sqm=55)
+        costs_110 = chain_total_cost(chains, area_sqm=110)
         # Larger area → higher cost
-        assert costs_60["point"] > costs_30["point"]
-        assert costs_120["point"] > costs_60["point"]
-        # 120 m² should be roughly 2–3× the 30 m² cost
-        ratio = costs_120["point"] / costs_30["point"]
-        assert 1.5 < ratio < 4.0
+        assert costs_110["point"] > costs_55["point"]
+        # 110 m² should be roughly 1.5–2× the 55 m² cost (base dominates)
+        ratio = costs_110["point"] / costs_55["point"]
+        assert 1.2 < ratio < 2.0
 
     def test_chain_cost_zero_area_uses_base(self):
         chains = detect_active_chains({"windows_doors": True}, "1950")
         costs = chain_total_cost(chains, area_sqm=0)
         # At 0 m² only the fixed base_cost remains
-        assert costs["point"] == 1_490_000
+        assert costs["point"] == 1_215_000
 
     def test_chain_rule_structure(self):
-        assert len(CHAIN_RULES) == 1
-        rule = CHAIN_RULES[0]
-        assert "trigger" in rule
-        assert "steps" in rule
-        # Area-scaled fields
-        assert "base_cost_point" in rule
-        assert "per_sqm_cost_point" in rule
-        assert "base_cost_low" in rule
-        assert "per_sqm_cost_low" in rule
-        assert "base_cost_high" in rule
-        assert "per_sqm_cost_high" in rule
+        assert len(CHAIN_RULES) == 2
+        for rule in CHAIN_RULES:
+            assert "trigger" in rule
+            assert "steps" in rule
+            # Area-scaled fields
+            assert "base_cost_point" in rule
+            assert "per_sqm_cost_point" in rule
+            assert "base_cost_low" in rule
+            assert "per_sqm_cost_low" in rule
+            assert "base_cost_high" in rule
+            assert "per_sqm_cost_high" in rule
 
 
 class TestInfrastructureMinimums:
@@ -295,17 +319,17 @@ class TestDatedStructuralInflation:
     def test_chain_cost_inflated_with_hand_computed_factor(self, price_index):
         chains = detect_active_chains({"windows_doors": True}, "1950")
         source_costs = chain_total_cost(
-            chains, area_sqm=30,
+            chains, area_sqm=55,
             target_date=SOURCE_DATE, price_index=price_index,
         )
         today_costs = chain_total_cost(
-            chains, area_sqm=30,
+            chains, area_sqm=55,
             target_date=date.today(), price_index=price_index,
         )
         expected_factor = _blended_factor(price_index, date.today())
         assert expected_factor > 1.0
-        assert source_costs["point"] == 2_750_000  # undated at source date
-        assert today_costs["point"] == int(round(2_750_000 * expected_factor))
+        assert source_costs["point"] == 2_425_000  # undated at source date
+        assert today_costs["point"] == int(round(2_425_000 * expected_factor))
         assert today_costs["point"] > source_costs["point"]
 
     def test_chimney_inflated_with_hand_computed_factor(self, price_index):

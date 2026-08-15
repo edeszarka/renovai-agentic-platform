@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from .feature_extractor import QuoteFeatures, ApartmentInput, extract_features
 from ..ingestion.inflation_models import PriceIndex
 from ..ingestion.inflation_calc import inflate_quote_value, compound_inflation_factor
-from ..db.models import Quote
+from ..db.models import Quote, BuildingType
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,102 @@ SCOPE_NAMES_ORDERED = [
 ]
 
 REFERENCE_AREA_SQM = 55.0
+
+
+# ---------------------------------------------------------------------------
+# Building-type / era similarity weights (third multiplicative factor)
+# ---------------------------------------------------------------------------
+# Multiplicatively combined with the existing IVW × recency weights in
+# scope_matched_estimate(): same-type-and-close-era quotes get full weight;
+# distant matches are down-weighted but NEVER excluded — the corpus is only
+# ~47 quotes, so exclusion would starve scopes to zero matches.
+
+_HU_ACCENT_MAP = str.maketrans("áéíóöőúüűÁÉÍÓÖŐÚÜŰ", "aeiooouuüAEIOOOUUU")
+_TYPE_MISMATCH_WEIGHT = 0.5  # different type: down-weighted, not excluded
+_ERA_MATCH_BAND_YEARS = 10  # |Δ| <= this → full era weight
+_ERA_FLOOR_WEIGHT = 0.3  # floor for very distant eras (never 0)
+
+# Canonical doc-01 taxonomy tokens (BuildingType enum values, already
+# ASCII). Used for type matching so that e.g. "tegla" (apartment brick)
+# does NOT substring-match "teglacsaladihaz" (family-house brick) — those
+# are distinct doc-01 categories that merely share a prefix.
+_CANONICAL_TYPE_TOKENS = {bt.value for bt in BuildingType}
+
+
+def _fold_type(value: Optional[str]) -> str:
+    return (value or "").strip().lower().translate(_HU_ACCENT_MAP)
+
+
+def _quote_type_token(building_type: Any) -> str:
+    """Normalized token for a Quote.building_type (BuildingType enum member)."""
+    if building_type is None:
+        return ""
+    try:
+        return _fold_type(building_type.value)
+    except AttributeError:
+        return _fold_type(str(building_type))
+
+
+def _canonical_types_in_text(text: str) -> Set[str]:
+    """Which doc-01 taxonomy tokens appear in a (folded) free-text type.
+
+    Returns the canonical tokens that are substrings of ``text``. This keeps
+    free-text user input ("1980 előtti tégla") matchable while never letting
+    a canonical token match a different canonical token (substring-matching
+    is applied only against the raw user text, not against other tokens).
+    """
+    found: Set[str] = set()
+    for token in _CANONICAL_TYPE_TOKENS:
+        if token in text:
+            found.add(token)
+    return found
+
+
+def building_type_similarity(user_type: Optional[str], quote_type: Any) -> float:
+    """Weight by building-type match (1.0 match, 0.5 mismatch, 1.0 if unknown).
+
+    User free text is decomposed into canonical doc-01 tokens; a quote's
+    canonical type matches if it is one of those tokens. Because canonical
+    tokens are never substring-matched against *each other*, "tegla" cannot
+    match "teglacsaladihaz" (distinct doc-01 categories).
+    """
+    u = _fold_type(user_type)
+    q = _quote_type_token(quote_type)
+    if not u or not q:
+        return 1.0  # unknown on either side → neutral, don't starve the corpus
+    user_canonical = _canonical_types_in_text(u)
+    if not user_canonical:
+        return 1.0  # free text had no recognizable type → neutral
+    if q in user_canonical:
+        return 1.0
+    return _TYPE_MISMATCH_WEIGHT
+
+
+def era_similarity(user_era: Optional[int], quote_era: Optional[int]) -> float:
+    """Weight by era closeness (1.0 close, linear decay to floor, never 0)."""
+    if user_era is None or quote_era is None:
+        return 1.0
+    try:
+        delta = abs(int(user_era) - int(quote_era))
+    except (TypeError, ValueError):
+        return 1.0
+    if delta <= _ERA_MATCH_BAND_YEARS:
+        return 1.0
+    return max(_ERA_FLOOR_WEIGHT, 1.0 - (delta - _ERA_MATCH_BAND_YEARS) / 100.0)
+
+
+def building_similarity_weight(apt: ApartmentInput, quote: Quote) -> float:
+    """Combined type × era similarity weight for a quote (multiplicative)."""
+    return building_type_similarity(apt.building_type, quote.building_type) * era_similarity(
+        apt.building_era, quote.building_era
+    )
+
+
+def _weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
+    """Weighted arithmetic mean. Self-normalizing: a uniform scaling of
+    ``weights`` cancels (Σ(c·w·x)/Σ(c·w) == Σ(w·x)/Σ(w)), so combined
+    weights never need an explicit renormalization pass."""
+    return float(np.sum(weights * values) / np.sum(weights))
 
 
 def _get_quote_scopes(quote: Quote) -> Set[str]:
@@ -239,6 +335,7 @@ async def scope_matched_estimate(
         if area <= 0:
             continue
         quote_year = q.quote_date.year if q.quote_date else 2024
+        sim_weight = building_similarity_weight(apt_input, q)
 
         scope_line_total: Dict[str, int] = {}
         for li in q.line_items:
@@ -258,13 +355,16 @@ async def scope_matched_estimate(
             scope_entries[scope_name].append((
                 inflate_quote_value(cost_total / area, quote_year, target_date, price_index),
                 quote_year,
+                sim_weight,
             ))
 
-    # 3 — Average per-sqm cost per scope using combined IVW × recency weighting.
+    # 3 — Average per-sqm cost per scope using IVW × recency × building-similarity weighting.
     # IVW: weight_i = 1 / ((x_i - mean)^2 + eps)  — downweights outliers
     # Recency: boost_year = most recent year in this scope's data;
     #   quotes from boost_year get 2× weight, others 1×
-    # Combined: combined_i = IVW_i × recency_i
+    # Similarity: type/era match vs the request → same-type-and-close-era quotes
+    #   get full weight, distant matches down-weighted (never excluded).
+    # Combined: combined_i = IVW_i × recency_i × similarity_i
     # Weighted mean: Σ(combined_i · x_i) / Σ(combined_i)
     # Edge case: if all quotes same year, recency is uniform (all 2×) →
     #   mathematically identical to pure IVW (common factor cancels).
@@ -273,12 +373,14 @@ async def scope_matched_estimate(
     scope_distinct_quotes: Dict[str, int] = {}
     scope_boost_year: Dict[str, Optional[int]] = {}
     scope_combined_weights: Dict[str, List[float]] = {}
+    scope_similarity_weights: Dict[str, List[float]] = {}
     scope_fallback: Dict[str, bool] = {}
     for scope_name in SCOPE_NAMES_ORDERED:
         entries = scope_entries[scope_name]
         scope_distinct_quotes[scope_name] = len(entries)
         vals = np.array([e[0] for e in entries], dtype=float)
         years = [e[1] for e in entries]
+        sims = [e[2] for e in entries]
         scope_boost_year[scope_name] = None
 
         if len(vals) >= 2:
@@ -291,15 +393,16 @@ async def scope_matched_estimate(
             recency_weights = np.array(
                 [2.0 if y == boost_year else 1.0 for y in years], dtype=float
             )
-            combined = ivw_weights * recency_weights
+            similarity_weights = np.array(sims, dtype=float)
+            combined = ivw_weights * recency_weights * similarity_weights
             scope_combined_weights[scope_name] = list(float(w) for w in combined)
-            scope_avg_per_sqm[scope_name] = float(
-                np.sum(combined * vals) / np.sum(combined)
-            )
+            scope_similarity_weights[scope_name] = list(float(w) for w in similarity_weights)
+            scope_avg_per_sqm[scope_name] = _weighted_mean(vals, combined)
             scope_fallback[scope_name] = False
         elif len(vals) == 1:
             scope_boost_year[scope_name] = entries[0][1]
             scope_combined_weights[scope_name] = [1.0]
+            scope_similarity_weights[scope_name] = [float(entries[0][2])]
             scope_avg_per_sqm[scope_name] = float(vals[0])
             scope_fallback[scope_name] = True
         else:
@@ -307,6 +410,7 @@ async def scope_matched_estimate(
                 SCOPE_CATEGORY_MAP[scope_name]["min_premium"] / REFERENCE_AREA_SQM
             )
             scope_combined_weights[scope_name] = []
+            scope_similarity_weights[scope_name] = []
             scope_fallback[scope_name] = True
             logger.warning(
                 "Scope '%s': no historical quotes in corpus; "
@@ -364,6 +468,7 @@ async def scope_matched_estimate(
                 "avg_per_sqm_huf": round(scope_avg_per_sqm[scope_name], 0),
                 "raw_per_sqm_huf": raw_vals,
                 "combined_weights": scope_combined_weights[scope_name],
+                "similarity_weights": scope_similarity_weights[scope_name],
                 "min_per_sqm_huf": round(float(min(raw_vals)), 0) if raw_vals else 0,
                 "max_per_sqm_huf": round(float(max(raw_vals)), 0) if raw_vals else 0,
                 "data_quality": dq_label,
@@ -393,6 +498,9 @@ async def scope_matched_estimate(
             "scope_avg_per_sqm_huf": {k: round(v, 0) for k, v in scope_avg_per_sqm.items()},
             "scope_distinct_quote_count": scope_distinct_quotes,
             "scope_line_item_count": scope_line_items,
+            "scope_similarity_weight_min": round(min(
+                (w for ws in scope_similarity_weights.values() for w in ws), default=1.0
+            ), 3),
             "scope_total_per_sqm_huf": round(scope_total_per_sqm, 0),
             "price_per_sqm_huf": round((CONTINGENCY + scope_total_per_sqm * query_area) / query_area, 0) if query_area > 0 else 0,
         },

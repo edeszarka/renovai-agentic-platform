@@ -10,14 +10,18 @@ class Base(DeclarativeBase):
     pass
 
 class BuildingType(str, enum.Enum):
-    """Canonical building taxonomy (doc 01). Values are ASCII-safe keys;
-    labels (lakás: tégla/panel/csúszózsalus, ház: könnyűszerkezetes/tégla családi ház/vályog vegyes) live in the backfill + UI."""
+    """Canonical building taxonomy. Values are ASCII-safe keys.
+
+    NOTE (Task 2.5 scope reduction): VÁLYOG ("valyog_vegyes") was deliberately
+    removed from the taxonomy. Doc 01 listed ház/vályog as a category, but this
+    pass only classifies PANEL vs TEGLA (default), so the enum carries no
+    vályog value. This is a known, intentional gap — not an oversight.
+    """
     TEGLA = "tegla"
     PANEL = "panel"
     CSUSZOZSALUS = "csuszozsalus"
     KONNYUSZERKEZETES = "konnyuszerkezetes"
     TEGLA_CSALADI_HAZ = "teglacsaladihaz"
-    VALYOG_VEGYES = "valyog_vegyes"
 
 class Quote(Base):
     __tablename__ = "quotes"
@@ -45,6 +49,7 @@ class Quote(Base):
     elevator_type: Mapped[Optional[str]]
     has_gas_heating: Mapped[Optional[bool]]
     floor_number: Mapped[Optional[int]]
+    renovation_completeness: Mapped[Optional[str]]  # "reszleges" | "komplett" | None (captured, not yet weighted)
     num_line_items: Mapped[int]
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
 

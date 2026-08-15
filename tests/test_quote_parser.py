@@ -38,6 +38,23 @@ def test_address_extractor_standard():
     assert addr["house_number"] == "30"
     assert addr["floor"] == "2. emelet"
 
+def test_address_extractor_floor_variants():
+    """Regression (Task 2C): the floor regex must accept "N emelet", "N. emelet"
+    AND a preceding comma (e.g. "19, 3. emelet"), and tolerate the comma as a
+    field separator like the period."""
+    cases = [
+        ("1092 Ráday utca 5. 2 emelet, komplett, 1900-as évek, van salak, 83nm", "2. emelet"),
+        ("1126 Hollósy Simon utca 30. 2 emelet, komplett, 1930-as évek, van salak, 76nm", "2. emelet"),
+        ("1065 Bajcsy-Zsilinszky út 19, 3. emelet, részleges, 1930-as évek, van salak, 80nm, fürdő felújítás", "3. emelet"),
+    ]
+    for filename, expected_floor in cases:
+        addr = extract_address(filename)
+        assert addr["floor"] == expected_floor, filename
+
+def test_address_extractor_no_floor_clause():
+    addr = extract_address("1024 Rózsahegy utca 4. komplett, 1970-es évek, nincs salak, 83nm")
+    assert addr["floor"] is None
+
 def test_address_extractor_no_address():
     filename = "Árajánlat_-_komplett_munkák"
     addr = extract_address(filename)
