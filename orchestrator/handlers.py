@@ -21,6 +21,7 @@ from typing import Any
 from datetime import date
 
 from renovai.safety.green_team import GreenTeamService
+from renovai.predictor.product_pricing import lookup, door_install, normalize_tier
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,115 @@ async def _green_team_gate(
 # Every handler returns a dict with at minimum:
 #   { "status": "ok" | "error", "data": {...}, "confidence": {...} }
 # ---------------------------------------------------------------------------
+
+
+def _build_owner_purchased_items(params: dict[str, Any]) -> tuple[dict, list, list]:
+    """Compute the owner-purchased (tulajdonosi beszerzés) product subtotal.
+
+    Reads the optional ``params["owner_purchased"]`` block:
+
+        {
+          "tier": "kozep_kozep",          # required quality tier (see TIERS)
+          "tiles_sqm": 45,                # tile area; default size 60x60
+          "laminate_sqm": 0, "laminate_thickness": "8mm",
+          "doors": 0, "door_type": "belso_zsaneros_2m", "door_glass": False,
+          "sanitary": False, "kitchen": False, "lamps": False,
+          "appliances": ["hob_fozolap", ...],   # subset of APPLIANCE_NAMES
+        }
+
+    Uses ``renovai.predictor.product_pricing`` (doc 04 catalog) as the single
+    source of truth. Returns ``(result, details, warnings)`` where ``result``
+    is ``{"low_huf", "mid_huf", "high_huf"}`` for the products only (installation
+    labor for doors is included so the budget is complete).
+
+    When ``owner_purchased`` is absent/empty, returns all-zero totals (no-op).
+    Any lookup failure degrades to a warning rather than failing the estimate.
+    """
+    spec = params.get("owner_purchased")
+    if not spec or not isinstance(spec, dict):
+        return {"low_huf": 0, "mid_huf": 0, "high_huf": 0}, [], []
+
+    try:
+        tier = spec.get("tier") or "kozep_kozep"
+        normalize_tier(tier)
+    except KeyError as exc:
+        return (
+            {"low_huf": 0, "mid_huf": 0, "high_huf": 0},
+            [],
+            [f"Érvénytelen minőségi szint: {exc} — tulajdonosi beszerzés kihagyva."],
+        )
+
+    low = mid = high = 0
+    details: list[dict] = []
+    warnings: list[str] = []
+
+    def add(name_hu: str, rng):
+        nonlocal low, mid, high
+        lo, hi = rng
+        lo = lo or 0
+        hi = hi or lo
+        mid_f = (lo + hi) / 2
+        low += lo
+        high += hi
+        mid += mid_f
+        details.append({"item": name_hu, "low_huf": lo, "high_huf": hi})
+
+    def qty(tiles_sqm: float, price: int) -> int:
+        return int(round(tiles_sqm * price))
+
+    # --- Tiles (csempe / járólap) ---------------------------------------------
+    tile_sqm = float(spec.get("tiles_sqm") or 0)
+    if tile_sqm > 0:
+        size = spec.get("tile_size") or "60x60"
+        try:
+            lo, hi = lookup("tile", tier, size=size)
+            add(f"Csempe/járólap ({size}, {tile_sqm:.0f} nm)", (qty(tile_sqm, lo or 0), qty(tile_sqm, hi or 0)))
+        except KeyError as exc:
+            warnings.append(f"Tulajdonosi csempe kihagyva: {exc}")
+
+    # --- Laminate floor -------------------------------------------------------
+    lam_sqm = float(spec.get("laminate_sqm") or 0)
+    if lam_sqm > 0:
+        thickness = spec.get("laminate_thickness") or "8mm"
+        try:
+            lo, hi = lookup("laminate", tier, thickness=thickness)
+            add(f"Laminált padló ({thickness}, {lam_sqm:.0f} nm)", (qty(lam_sqm, lo or 0), qty(lam_sqm, hi or 0)))
+        except KeyError as exc:
+            warnings.append(f"Tulajdonosi laminált kihagyva: {exc}")
+
+    # --- Interior doors + installation labor ------------------------------------
+    n_doors = int(spec.get("doors") or 0)
+    if n_doors > 0:
+        door_type = spec.get("door_type") or "belso_zsaneros_2m"
+        glass = "with_glass" if spec.get("door_glass") else "without_glass"
+        try:
+            lo, hi = lookup("door", tier, door_type=door_type, glass=glass)
+            ilo, ihi = door_install(door_type, glass)
+            add(f"Beltéri ajtók ({n_doors} db, {glass})", (n_doors * (lo or 0), n_doors * (hi or 0)))
+            add("Ajtó beszerelés (munkadíj)", (n_doors * (ilo or 0), n_doors * (ihi or 0)))
+        except KeyError as exc:
+            warnings.append(f"Tulajdonosi ajtó kihagyva: {exc}")
+
+    # --- Sanitary package -------------------------------------------------------
+    if spec.get("sanitary"):
+        add("Szaniter csomag", lookup("sanitary", tier))
+
+    # --- Kitchen cabinet ---------------------------------------------------------
+    if spec.get("kitchen"):
+        add("Konyhabútor", lookup("kitchen", tier))
+
+    # --- Lamps ---------------------------------------------------------------------
+    if spec.get("lamps"):
+        add("Lámpák", lookup("lamp", tier))
+
+    # --- Appliances --------------------------------------------------------------
+    for app in spec.get("appliances") or []:
+        try:
+            add(app, lookup("appliance", tier, appliance=app))
+        except KeyError as exc:
+            warnings.append(f"Tulajdonosi gép kihagyva ({app}): {exc}")
+
+    return {"low_huf": int(low), "mid_huf": int(mid), "high_huf": int(high)}, details, warnings
 
 
 async def handle_cost_estimation(
@@ -217,6 +327,7 @@ async def handle_cost_estimation(
             "logistics_surcharge_huf": 0,
             "elevator_surcharge_huf": 0,
             "chimney_technician_huf": 0,
+            "owner_purchased_huf": 0,
         }
 
         base_low = estimate.get("estimate_low_huf", 0)
@@ -317,6 +428,18 @@ async def handle_cost_estimation(
         # Structural add-ons (height, chains, infra, logistics, elevator, chimney)
         # are computed in current-day HUF and are NOT inflated again.
 
+        # 7 — Owner-purchased products (tulajdonosi beszerzés, doc 04 catalog).
+        # Material-only product subtotal from the owner side; door install labor
+        # (contractor work) is included so the budget stays complete. No-op when
+        # params["owner_purchased"] is absent.
+        owner_result, owner_details, owner_warnings = _build_owner_purchased_items(params)
+        if owner_result["mid_huf"]:
+            base_low += owner_result["low_huf"]
+            base_mid += owner_result["mid_huf"]
+            base_high += owner_result["high_huf"]
+            adjustments["owner_purchased_huf"] = owner_result["mid_huf"]
+        warnings.extend(owner_warnings)
+
         # Build adjustment breakdown for Vibe Diff
         total_adjustments = sum(v for v in adjustments.values())
         adj_parts = []
@@ -372,6 +495,7 @@ async def handle_cost_estimation(
                 "base_estimate": base_estimate_out,
                 "adjustments": adjustments,
                 "adjustment_summary": adj_summary,
+                "owner_purchased_items": owner_details,
                 "active_chains": [
                     {"id": c["id"], "cost_point": c["base_cost_point"] + c["per_sqm_cost_point"] * area_sqm, "description": c["description"]}
                     for c in active_chains
@@ -1560,6 +1684,26 @@ async def handle_construction_planning(
         })
         total_low += logistics_surcharge_low
         total_high += logistics_surcharge_high
+
+    # Owner-purchased products (tulajdonosi beszerzés, doc 04 catalog).
+    # Material product subtotal from the owner side; door install labor included.
+    owner_result, owner_details, owner_warnings = _build_owner_purchased_items(params)
+    if owner_result["mid_huf"]:
+        total_low += owner_result["low_huf"]
+        total_high += owner_result["high_huf"]
+        phases.append({
+            "id": "owner_purchased",
+            "name": "Tulajdonosi beszerzés (termékek)",
+            "description": "A megrendelő által vásárolt anyagok és termékek (csempe, laminált, "
+                           "ajtók, szaniter, konyhabútor, lámpák, háztartási gépek) a kiválasztott "
+                           "minőségi szinten.",
+            "material_cost_range": f"{owner_result['low_huf']:,} - {owner_result['high_huf']:,} Ft",
+            "labor_cost_range": "0 Ft (termékár, tulajdonosi beszerzés)",
+            "is_infrastructure_minimum": False,
+            "data_source": "product_catalog_doc04",
+            "items": owner_details,
+        })
+    warnings.extend(owner_warnings)
 
     total_mid = (total_low + total_high) // 2
 
