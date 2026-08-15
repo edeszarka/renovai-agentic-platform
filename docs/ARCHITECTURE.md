@@ -133,6 +133,34 @@ declaratively. The skill entry point and the MCP tool call the same
 underlying renovai/ function — they are two interfaces onto one
 implementation.
 
+## Menet 2: chain rules, structural cost & owner-verified pricing
+
+Menet 2 extended the canonical predictor path with two single-source-of-truth
+modules under `renovai/predictor/`, both consuming tabular data the same way
+as `CHAIN_RULES` (structured config, not free-form prose):
+
+- **`renovai/predictor/structural_cost.py`** — building-era-aware structural
+  chains (doc 02 `CHAIN_RULES`), ceiling-height wall-area multiplier, and
+  infrastructure minimums. Chain rules are era/type gated (branch A = pre-1970
+  tégla full-slag; branches B/C = post-1970 misung), area-scaled from a 30 m²
+  reference, and validated so a defined chain can never be silently omitted
+  from an estimate.
+- **`renovai/predictor/product_pricing.py`** — the owner-purchased
+  (`tulajdonosi beszerzés`) product pricing catalog (doc 04), six quality
+  tiers per category. This is deliberately separate from contractor labor
+  pricing (which stays in skill `references/pricing.md`, not loaded by the
+  Python path). Doc 04 is canonical; the doc 03 #6 vs doc 04 §8 appliance
+  conflict stays explicitly flagged pending reconciliation rather than
+  silently resolved.
+
+The orchestrator handlers wire both in: `handle_construction_planning`
+emits the product-catalog phase and `handle_cost_estimation` adds the
+owner-purchased total into the low/mid/high ranges. Task 4 added a structured
+golden-dataset validator (`scripts/validate_golden_dataset.py`) that scores the
+21 golden cases against these implemented callables and honestly marks prose
+cases Tasks 1-3 don't implement as NOT-SCORABLE (it does not fabricate
+pass/fail).
+
 ## Sandboxing
 
 Buyer-uploaded XLSX files (quotes from contractors they're evaluating)
