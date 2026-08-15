@@ -243,4 +243,4 @@ Run command: `python -m pytest -q` → `243 passed, 4 skipped`.
 
 ---
 
-MENET2_COMPLETE: feature/menet2-chain-rules-and-pricing, 6ba00a5, 243 passed / 4 skipped
+MENET2_COMPLETE: feature/menet2-chain-rules-and-pricing, d3dc7cb, 243 passed / 4 skipped
