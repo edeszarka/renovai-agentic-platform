@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.add_column('quotes', sa.Column('building_type', sa.Enum('TEGLA', 'PANEL', 'CSUSZOZSALUS', 'KONNYUSZERKEZETES', 'TEGLA_CSALADI_HAZ', 'VALYOG_VEGYES', name='buildingtype'), nullable=True))
+    op.add_column('quotes', sa.Column('building_type', sa.Enum('TEGLA', 'PANEL', 'CSUSZOZSALUS', 'KONNYUSZERKEZETES', 'TEGLA_CSALADI_HAZ', name='buildingtype'), nullable=True))
     op.add_column('quotes', sa.Column('building_era', sa.Integer(), nullable=True))
 
 
