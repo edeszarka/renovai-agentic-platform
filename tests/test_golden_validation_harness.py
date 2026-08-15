@@ -5,7 +5,8 @@ asserts the *honest* invariants that hold regardless of which specific cases
 are implemented:
 
   * all 21 cases are processed (none dropped),
-  * the ceiling-height case and the interior-door case PASS (implemented),
+  * the ceiling-height case, the interior-door case and the two-input
+    subfloor case PASS (implemented),
   * the appliance case stays flagged PENDING RECONCILIATION (never silently
     scored/resolved),
   * every case is reported under exactly one status.
@@ -52,3 +53,15 @@ def test_appliance_case_stays_pending_reconciliation() -> None:
     # Must NOT be silently resolved into PASS outright; must be flagged.
     assert r["status"] in ("PASS-FLAGGED", "FAIL-FLAG-DROPPED")
     assert r["bullets"][0]["ok"] is True  # the PENDING flag is preserved
+
+
+def test_subfloor_two_input_case_passes_both_scenarios() -> None:
+    """003 is a two-input case: type1 (branch A) + type2 (branch B/C) are
+    evaluated separately and both must pass under one case_id."""
+    by_id = {r["case_id"]: r for r in run_all()}
+    r = by_id["subfloor_leveling_slag_vs_compound_003"]
+    assert r["status"] == "PASS"
+    bullets = {b["bullet"].split(":")[0]: b for b in r["bullets"]}
+    assert bullets["type1_slag_sand"]["ok"] is True
+    assert bullets["type2_adhesive_misung"]["ok"] is True
+    assert len(r["bullets"]) == 4  # 2 bullets per sub-scenario

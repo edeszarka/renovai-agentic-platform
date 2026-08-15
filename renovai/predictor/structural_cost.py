@@ -194,20 +194,22 @@ CHAIN_RULES: List[ChainEntry] = [
             "Mélyalapozás",
             "Aljzatkiegyenlítő kiöntése",
         ],
-        # Area-scaled, calibrated against golden case subfloor_leveling_slag_vs_compound_003
-        # type2 (misung) totals 1.25–1.6M HUF at 55 m² → per-sqm ≈ 22.7–29.1k.
-        "base_cost_low": 0,
-        "per_sqm_cost_low": 22_000,
-        "base_cost_high": 0,
-        "per_sqm_cost_high": 29_000,
-        "base_cost_point": 0,
-        "per_sqm_cost_point": 25_500,
+        # Area-scaled, calibrated against doc 03 item 3 type 2 (parkettaragasztó
+        # vagy 1–2 cm misung egyenes aljzat, 55 nm reference): anyag 0.65-0.75M
+        # + munkadíj 0.6-0.85M = 1.25-1.6M HUF total. Calibrated so that at
+        # 55 m² the values reproduce that total exactly.
+        "base_cost_low": 150_000,
+        "per_sqm_cost_low": 20_000,
+        "base_cost_high": 225_000,
+        "per_sqm_cost_high": 25_000,
+        "base_cost_point": 187_500,
+        "per_sqm_cost_point": 22_500,
         "description": (
             "Misung/aljzatkiegyenlítés-lánc: 1970 utáni tégla, tégla falazatú "
             "csúszózsalus és panel épületekben a padló alatt nincs 12–15 cm salak, "
             "csak 1–3 cm misung — így csiszolás + kiegyenlítés, nem teljes betonozás."
         ),
-        "note": "Doc 02 §B.2/§C.3; figures from golden case subfloor_leveling_slag_vs_compound_003 type2. FAZIS_A_FINDINGS.md §5 'Betonozás (A) vs 1–3 cm aljzatkiegyenlítés (B/C)'.",
+        "note": "Sourced from doc 03 item 3 type 2 (parkettaragasztó vagy 1–2 cm misung egyenes aljzat, 55 nm reference): anyag 0.65-0.75M + munkadíj 0.6-0.85M = 1.25-1.6M HUF. Scales with area. Doc 02 §B.2/§C.3; FAZIS_A_FINDINGS.md §5 'Betonozás (A) vs 1–3 cm aljzatkiegyenlítés (B/C)'.",
     },
 ]
 

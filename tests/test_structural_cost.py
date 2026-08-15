@@ -115,11 +115,11 @@ class TestChainDetection:
 
     def test_misung_chain_cost_at_reference_area(self):
         chains = detect_active_chains({"flooring": True}, "1985")
-        costs = chain_total_cost(chains, area_sqm=30)
-        # base 0 + per_sqm * 30
-        assert costs["low"] == 22_000 * 30
-        assert costs["high"] == 29_000 * 30
-        assert costs["point"] == 25_500 * 30
+        costs = chain_total_cost(chains, area_sqm=55)
+        # doc 03 item 3 type 2 at 55 m² reference: base + per_sqm * 55
+        assert costs["low"] == 1_250_000
+        assert costs["high"] == 1_600_000
+        assert costs["point"] == 1_425_000
 
     def test_no_matching_scope_no_chain(self):
         scope = {"demolition": True, "plumbing": True}

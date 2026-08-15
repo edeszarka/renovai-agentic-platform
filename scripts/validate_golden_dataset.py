@@ -18,6 +18,10 @@ Item ``appliance_package_011`` is expected to remain flagged
 PENDING RECONCILIATION — this script asserts that flag is still present and
 does NOT silently score it.
 
+Two-input cases: ``subfloor_leveling_slag_vs_compound_003`` carries TWO named
+sub-scenarios (type1 branch A / type2 branch B/C), each with its own input and
+expected output, evaluated and reported separately under the same case_id.
+
 Run:
     python -m scripts.validate_golden_dataset
     python -m scripts.validate_golden_dataset --json   (machine-readable)
@@ -89,6 +93,56 @@ def check_008(case: dict) -> list[dict]:
             "detail": f"point@{p.get('area_sqm', 55)}m²={cost_case:,} (area-scaled)",
         },
     ]
+
+
+def check_003(case: dict) -> list[dict]:
+    """subfloor_leveling_slag_vs_compound_003 — TWO sub-scenarios under one
+    case_id (branch A: full-slag ajto_padlo_lanc; branch B/C: misung). Each
+    sub-scenario is its own input/expected output, evaluated separately.
+
+    type1 (kohósalak/homok)  → branch A pre-1970 tégla → ajto_padlo_lanc,
+        doc 03 item 3 type 1: 2.0-2.85M at 55 m².
+    type2 (ragasztó/misung)  → branch B/C post-1970 tégla → misung_subfloor,
+        doc 03 item 3 type 2: 1.25-1.6M at 55 m².
+    """
+    bullets = []
+    sub = {
+        "type1_slag_sand": {
+            "era": "1960",
+            "btype": "tégla",
+            "scope": {"flooring": True, "demolition": True},
+            "chain": "ajto_padlo_lanc",
+            "lo": 2_000_000,
+            "hi": 2_850_000,
+            "src": "doc 03 item 3 type 1",
+        },
+        "type2_adhesive_misung": {
+            "era": "1985",
+            "btype": "tégla",
+            "scope": {"flooring": True, "demolition": True},
+            "chain": "misung_subfloor_leveling",
+            "lo": 1_250_000,
+            "hi": 1_600_000,
+            "src": "doc 03 item 3 type 2",
+        },
+    }
+    for name, cfg in sub.items():
+        active = detect_active_chains(
+            cfg["scope"], cfg["era"], floor_number=1, gas_heating=False, building_type=cfg["btype"],
+        )
+        ids = [c["id"] for c in active]
+        cost = chain_total_cost(active, area_sqm=REF_AREA)["point"]
+        bullets.append({
+            "bullet": f"{name}: chain_active == {cfg['chain']}",
+            "ok": cfg["chain"] in ids,
+            "detail": f"active={ids} (branch {'A' if cfg['chain']=='ajto_padlo_lanc' else 'B/C'})",
+        })
+        bullets.append({
+            "bullet": f"{name}: chain cost {cfg['lo']/1e6:.2f}-{cfg['hi']/1e6:.2f}M at {REF_AREA:.0f} m² ({cfg['src']})",
+            "ok": cfg["lo"] <= cost <= cfg["hi"],
+            "detail": f"point@{REF_AREA:.0f}m²={cost:,}",
+        })
+    return bullets
 
 
 def check_009(case: dict) -> list[dict]:
@@ -202,6 +256,7 @@ def check_generic(case: dict) -> list[dict]:
 
 # case_id -> checker
 _CHECKERS = {
+    "subfloor_leveling_slag_vs_compound_003": check_003,
     "ajto_padlo_lanc_pre1970_008": check_008,
     "high_ceiling_painting_plastering_009": check_009,
     "interior_door_installation_018": check_018,
@@ -212,7 +267,6 @@ _CHECKERS = {
 KNOWN_NOT_SCOPED = {
     "wall_floor_reinforcement_001": "prose decision-tree; no callable (masonry pre/post-1920 figures in pricing.md)",
     "sawdust_wallpaper_vs_lime_002": "prose; wall-prep extra costs in pricing.md, no callable",
-    "subfloor_leveling_slag_vs_compound_003": "partially covered by CHAIN_RULES but golden splits type1/type2 totals; no single callable reproduces both",
     "tile_size_cost_comparison_004": "tile labor-by-size in pricing.md; no callable",
     "cement_vs_dispersion_waterproofing_005": "prose; figures in pricing.md, no callable",
     "window_spaletta_restoration_006": "prose; spaletta figures in pricing.md, no callable",
