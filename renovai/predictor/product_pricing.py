@@ -15,7 +15,7 @@ reference unit, matching how the rest of the codebase stores cost ranges
 (e.g. a luxury tile size with no lower-tier entry).
 
 Per the pending doc 03 #6 vs doc 04 §8 appliance conflict
-(FAZIS_A_FINDINGS.md §3), doc 04's tiered figures are treated as canonical
+(docs/development-log/FAZIS_A_FINDINGS.md §3), doc 04's tiered figures are treated as canonical
 for this catalog; a reconciliation note is carried on the appliance section
 rather than silently picking a number.
 """
@@ -199,7 +199,7 @@ KITCHEN_PRICES: Dict[str, PriceRange] = {
 # Household appliances (háztartási gépek) — doc 04 §8.
 # Unit: Ft per appliance by tier. Six tiers, seven appliances.
 # NOTE (pending reconciliation): doc 03 #6 gives flat single ranges that do not
-# map cleanly onto these tiers (see FAZIS_A_FINDINGS.md §3). Doc 04's tiered
+# map cleanly onto these tiers (see docs/development-log/FAZIS_A_FINDINGS.md §3). Doc 04's tiered
 # figures are used as canonical here; no number is silently "chosen" to merge
 # with doc 03. Update once the conflict is resolved by the user.
 # ---------------------------------------------------------------------------

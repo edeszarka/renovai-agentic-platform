@@ -111,7 +111,7 @@ def _era_pre_1970(building_era: Optional[str]) -> bool:
 #   C: panel + 1960/70 után épült csúszózsalus (beton)  (doc 02 §C)
 # The branch matters to cost chains because A carries a 12–15 cm slag bed
 # under the floor, while B/C carry only 1–3 cm misung (doc 02 §A.3 vs §B.1/§C.1).
-# Cross-ref: FAZIS_A_FINDINGS.md §5 rows "Branch selection A/B/C by type+era".
+# Cross-ref: docs/development-log/FAZIS_A_FINDINGS.md §5 rows "Branch selection A/B/C by type+era".
 
 
 def _normalize_type(building_type: Optional[str]) -> str:
@@ -175,7 +175,7 @@ CHAIN_RULES: List[ChainEntry] = [
             "során előkerülő kohósalak miatt szükséges teljes salakmentesítés, "
             "szigetelés és új aljzat kialakítása."
         ),
-        "note": "Sourced from doc 03 item 3 type 1 (kohósalak/homok alatti egyenes aljzat, 55 nm reference): anyag 0.70-0.85M + munkadíj 1.3-2.0M = 2.0-2.85M HUF. Scales with area for EPS, concrete, flooring. Doc 02 §A; FAZIS_A_FINDINGS.md §5 'Salak 12–15 cm (A) vs 1–3 cm misung (B/C)'.",
+        "note": "Sourced from doc 03 item 3 type 1 (kohósalak/homok alatti egyenes aljzat, 55 nm reference): anyag 0.70-0.85M + munkadíj 1.3-2.0M = 2.0-2.85M HUF. Scales with area for EPS, concrete, flooring. Doc 02 §A; docs/development-log/FAZIS_A_FINDINGS.md §5 'Salak 12–15 cm (A) vs 1–3 cm misung (B/C)'.",
     },
     {
         "id": "misung_subfloor_leveling",
@@ -209,7 +209,7 @@ CHAIN_RULES: List[ChainEntry] = [
             "csúszózsalus és panel épületekben a padló alatt nincs 12–15 cm salak, "
             "csak 1–3 cm misung — így csiszolás + kiegyenlítés, nem teljes betonozás."
         ),
-        "note": "Sourced from doc 03 item 3 type 2 (parkettaragasztó vagy 1–2 cm misung egyenes aljzat, 55 nm reference): anyag 0.65-0.75M + munkadíj 0.6-0.85M = 1.25-1.6M HUF. Scales with area. Doc 02 §B.2/§C.3; FAZIS_A_FINDINGS.md §5 'Betonozás (A) vs 1–3 cm aljzatkiegyenlítés (B/C)'.",
+        "note": "Sourced from doc 03 item 3 type 2 (parkettaragasztó vagy 1–2 cm misung egyenes aljzat, 55 nm reference): anyag 0.65-0.75M + munkadíj 0.6-0.85M = 1.25-1.6M HUF. Scales with area. Doc 02 §B.2/§C.3; docs/development-log/FAZIS_A_FINDINGS.md §5 'Betonozás (A) vs 1–3 cm aljzatkiegyenlítés (B/C)'.",
     },
 ]
 

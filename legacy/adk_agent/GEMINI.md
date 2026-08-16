@@ -1,3 +1,5 @@
+> **ARCHIVED** — describes the pre-refactor ADK/MCP architecture, not the current canonical Streamlit + orchestrator.handlers path. See docs/ARCHITECTURE.md for current state.
+
 # RenovAI 2.0 — Project DNA
 
 This file is the architectural north star. Every agent reads this first before

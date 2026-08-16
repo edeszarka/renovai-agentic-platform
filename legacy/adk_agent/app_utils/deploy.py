@@ -96,7 +96,7 @@ def deploy(args: argparse.Namespace):
         ),
     }
 
-    metadata_path = PROJECT_DIR / "deployment_metadata.json"
+    metadata_path = PROJECT_DIR / "legacy" / "deployment" / "deployment_metadata.json"
     existing_rid = None
     if metadata_path.exists():
         with open(metadata_path) as f:
