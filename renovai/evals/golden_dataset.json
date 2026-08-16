@@ -449,7 +449,7 @@
       "must_state_package_total_range_480k_660k_huf"
     ],
     "notes": [
-      "PENDING RECONCILIATION — doc 03 gives flat ranges that don't cleanly map to doc 04's 6-tier pricing (see FAZIS_A_FINDINGS.md §3 for the exact per-appliance discrepancy table). This case uses doc 03's flat figures as an interim reference; expect this case to be revised once the appliance pricing conflict is resolved."
+      "PENDING RECONCILIATION — doc 03 gives flat ranges that don't cleanly map to doc 04's 6-tier pricing (see docs/development-log/FAZIS_A_FINDINGS.md §3 for the exact per-appliance discrepancy table). This case uses doc 03's flat figures as an interim reference; expect this case to be revised once the appliance pricing conflict is resolved."
     ]
   },
   {
