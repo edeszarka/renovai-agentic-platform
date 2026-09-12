@@ -1023,4 +1023,4 @@ elif tab_selection == _("nav.tab2"):
                     logger.error("Renovation plan error", exc_info=True)
                     st.error(_("tab2.error"))
                     with st.expander("🔧 Technikai részletek" if st.session_state.get("lang", "HU") == "HU" else "🔧 Technical Details"):
-                        st.code(f"{type(exc).__name__}: {exc}", language="text")
+                        st.code(f"{type(exc).__name__}: {exc}", language="text")
