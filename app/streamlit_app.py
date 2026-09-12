@@ -7,7 +7,6 @@ import asyncio
 import concurrent.futures
 import logging
 import os
-import re
 import uuid
 
 from pathlib import Path
@@ -308,48 +307,46 @@ st.set_page_config(
 cfg = AppConfig()
 
 ERAS_TAB1 = {
-    "1950": "1955",
-    "1960": "1965",
-    "1970": "1975",
-    "1980": "1985",
-    "1990": "1995",
-    "2000": "2005",
-    "2010": "2015",
-    "2020": "2025",
+    "1900_elott": "1890",
+    "1900_1945": "1920",
+    "1945_1970": "1955",
+    "1970_1990": "1980",
+    "1990_utan": "2000",
 }
 
 ERAS_TAB2 = {
-    "1950": "1980",
-    "1960": "1985",
-    "1970": "1990",
-    "1980": "1995",
-    "1990": "2000",
-    "2000": "2005",
-    "2010": "2015",
-    "2020": "2025",
+    "1900_elott": "1890",
+    "1900_1945": "1920",
+    "1945_1970": "1955",
+    "1970_1990": "1980",
+    "1990_utan": "2000",
+    "ismeretlen": "1980",
 }
 
 
 def _init_handler():
-    """Initialize policy, registry, and trace_id from session state or defaults."""
-    if "policy" in st.session_state and "registry" in st.session_state and "trace_id" in st.session_state:
+    """Initialize and cache the policy service, skill registry, and trace_id.
+
+    The three values are built once and stored in session state so every rerun
+    of the app reuses the same policy/registry/trace_id instead of rebuilding
+    them (and generating a new, uncorrelated trace_id) on each interaction.
+    """
+    if (
+        "policy" in st.session_state
+        and "registry" in st.session_state
+        and "trace_id" in st.session_state
+    ):
         return (
             st.session_state.policy,
             st.session_state.registry,
             st.session_state.trace_id,
         )
-    from renovai.api.config import AppConfig
-    from renovai.db.session import get_engine, get_session_maker
-    import uuid
-    import logging
-    logger = logging.getLogger("renovai-streamlit")
-    cfg = AppConfig()
-    engine = get_engine(os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"))
-    sm = get_session_maker(engine)
-    policy = PolicyService(logger=logger, cfg=cfg, session_maker=sm)
+
+    policy = PolicyService()
     registry = SkillRegistry()
     registry.load_all()
     trace_id = f"st-{uuid.uuid4().hex[:12]}"
+
     st.session_state.policy = policy
     st.session_state.registry = registry
     st.session_state.trace_id = trace_id
@@ -357,15 +354,21 @@ def _init_handler():
 
 
 def _init_session_state():
-    """Initialize session state variables required by the app."""
+    """Initialize app-level session state: price index, language, and DB session maker.
+
+    Each piece of state is guarded by its own ``not in st.session_state`` check so
+    the function is idempotent and safe to call unconditionally on every rerun.
+    """
     if "price_index" not in st.session_state:
-        from renovai.ingestion.inflation_calc import load_price_index as _load_price_index
         st.session_state.price_index = _load_price_index(
-            Path(st.session_state.cfg.inflation_materials_csv),
-            Path(st.session_state.cfg.inflation_labor_csv),
+            Path(cfg.inflation_materials_csv),
+            Path(cfg.inflation_labor_csv),
         )
     if "lang" not in st.session_state:
         st.session_state.lang = "HU"
+    if "session_maker" not in st.session_state:
+        engine = get_engine(os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"))
+        st.session_state.session_maker = get_session_maker(engine)
 
 
 def _(key: str, **kwargs) -> str:
@@ -380,14 +383,16 @@ def fmt_huf(n: int) -> str:
     return f"{n:,} Ft".replace(",", " ")
 
 
-if "price_index" not in st.session_state:
-    st.session_state.price_index = load_price_index()
-if "lang" not in st.session_state:
-    st.session_state.lang = "HU"
-if "session_maker" not in st.session_state:
-    st.session_state.session_maker = load_sql_resources()
+def _run_async(coro):
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
-session_maker = st.session_state.session_maker
+
+_init_session_state()
 
 # ── Sidebar ──────────────────────────────────────────────────────
 
@@ -517,14 +522,6 @@ if tab_selection == _("nav.tab1"):
         if run_prep:
             with st.spinner(_("tab1.spinner")):
                 try:
-                    # Map era_key to a numeric year for the handler
-                    era_year_map = {
-                        "1900_elott": "1890",
-                        "1900_1945": "1920",
-                        "1945_1970": "1955",
-                        "1970_1990": "1980",
-                        "1990_utan": "2000",
-                    }
                     era_year = ERAS_TAB1.get(era_key, "1955")
 
                     wall_condition = {}
@@ -556,9 +553,6 @@ if tab_selection == _("nav.tab1"):
                     }
 
                     policy, registry, trace_id = _init_handler()
-                    registry = SkillRegistry()
-                    registry.load_all()
-                    trace_id = f"st-{uuid.uuid4().hex[:12]}"
 
                     result = _run_async(
                         handle_expert_interview(params, policy, registry, trace_id)
@@ -823,14 +817,6 @@ elif tab_selection == _("nav.tab2"):
         if run_plan:
             with st.spinner(_("tab2.spinner")):
                 try:
-                    era_year_map_t2 = {
-                        "1900_elott": "1890",
-                        "1900_1945": "1920",
-                        "1945_1970": "1955",
-                        "1970_1990": "1980",
-                        "1990_utan": "2000",
-                        "ismeretlen": "1980",
-                    }
                     era_year_t2 = ERAS_TAB2.get(era_key_t2, "1980")
 
                     wall_cond = {}
@@ -876,9 +862,6 @@ elif tab_selection == _("nav.tab2"):
                         "gas_heating": gas_heating,
                         "floor_number": floor_number,
                     }
-
-                    policy, registry, trace_id = _init_handler()
-                    from orchestrator.skill_registry import SkillRegistry
 
                     policy, registry, trace_id = _init_handler()
 
