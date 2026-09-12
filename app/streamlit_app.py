@@ -7,12 +7,14 @@ import asyncio
 import concurrent.futures
 import logging
 import os
-import re
 import uuid
-from datetime import date
+
 from pathlib import Path
 
-import pandas as pd
+from orchestrator.handlers import handle_expert_interview, handle_construction_planning
+from orchestrator.policy_service import PolicyService
+from orchestrator.skill_registry import SkillRegistry
+
 import streamlit as st
 
 from renovai.api.config import AppConfig
@@ -290,9 +292,9 @@ LANG = {
     },
 }
 
-PRIORITY_ORDER = ["kritikus", "fontos", "érdemes_megnézni"]
 
-PII_COLUMNS = {"address", "address_raw", "file_name", "file"}
+
+
 
 
 st.set_page_config(
@@ -303,6 +305,70 @@ st.set_page_config(
 )
 
 cfg = AppConfig()
+
+ERAS_TAB1 = {
+    "1900_elott": "1890",
+    "1900_1945": "1920",
+    "1945_1970": "1955",
+    "1970_1990": "1980",
+    "1990_utan": "2000",
+}
+
+ERAS_TAB2 = {
+    "1900_elott": "1890",
+    "1900_1945": "1920",
+    "1945_1970": "1955",
+    "1970_1990": "1980",
+    "1990_utan": "2000",
+    "ismeretlen": "1980",
+}
+
+
+def _init_handler():
+    """Initialize and cache the policy service, skill registry, and trace_id.
+
+    The three values are built once and stored in session state so every rerun
+    of the app reuses the same policy/registry/trace_id instead of rebuilding
+    them (and generating a new, uncorrelated trace_id) on each interaction.
+    """
+    if (
+        "policy" in st.session_state
+        and "registry" in st.session_state
+        and "trace_id" in st.session_state
+    ):
+        return (
+            st.session_state.policy,
+            st.session_state.registry,
+            st.session_state.trace_id,
+        )
+
+    policy = PolicyService()
+    registry = SkillRegistry()
+    registry.load_all()
+    trace_id = f"st-{uuid.uuid4().hex[:12]}"
+
+    st.session_state.policy = policy
+    st.session_state.registry = registry
+    st.session_state.trace_id = trace_id
+    return policy, registry, trace_id
+
+
+def _init_session_state():
+    """Initialize app-level session state: price index, language, and DB session maker.
+
+    Each piece of state is guarded by its own ``not in st.session_state`` check so
+    the function is idempotent and safe to call unconditionally on every rerun.
+    """
+    if "price_index" not in st.session_state:
+        st.session_state.price_index = _load_price_index(
+            Path(cfg.inflation_materials_csv),
+            Path(cfg.inflation_labor_csv),
+        )
+    if "lang" not in st.session_state:
+        st.session_state.lang = "HU"
+    if "session_maker" not in st.session_state:
+        engine = get_engine(os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"))
+        st.session_state.session_maker = get_session_maker(engine)
 
 
 def _(key: str, **kwargs) -> str:
@@ -317,50 +383,6 @@ def fmt_huf(n: int) -> str:
     return f"{n:,} Ft".replace(",", " ")
 
 
-def _anonymize_address(addr) -> str:
-    lang = st.session_state.get("lang", "HU")
-    if isinstance(addr, (int, float)):
-        fmt = LANG[lang]["t1.district_fmt"]
-        return fmt.format(int(addr))
-    m = re.search(r"(\d+)\.?\s*(?:kerület|ker|district)", str(addr))
-    if m:
-        return f"Budapest {m.group(1)}. kerület"
-    return f"Budapest {addr}. kerület" if isinstance(addr, (int, float)) else "Budapest (anon.)"
-
-
-def _scrub_df(df: pd.DataFrame) -> pd.DataFrame:
-    drop_cols = [c for c in PII_COLUMNS if c in df.columns]
-    if drop_cols:
-        df = df.drop(columns=drop_cols)
-    return df
-
-
-def _anonymize_source(src: str) -> str:
-    parts = src.replace("\\", "/").split("/")
-    relevant = [p for p in parts if "kerület" in p.lower() or "district" in p.lower() or "m2" in p.lower() or "m²" in p.lower()]
-    if relevant:
-        return relevant[-1]
-    filename = parts[-1] if parts else src
-    filename = re.sub(r"\b(\d{1,2})\s*\.\s*kerület", r"\1. district", filename)
-    return filename
-
-
-@st.cache_resource
-def load_price_index():
-    return _load_price_index(
-        Path(cfg.inflation_materials_csv),
-        Path(cfg.inflation_labor_csv),
-    )
-
-
-@st.cache_resource
-def load_sql_resources():
-    db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
-    engine = get_engine(db_url)
-    sm = get_session_maker(engine)
-    return sm
-
-
 def _run_async(coro):
     try:
         asyncio.get_running_loop()
@@ -370,19 +392,7 @@ def _run_async(coro):
         return pool.submit(asyncio.run, coro).result()
 
 
-async def _run_sql_query(question: str, engine: TextToSQLEngine, sm) -> dict:
-    async with sm() as session:
-        return await engine.query(question, session)
-
-
-if "price_index" not in st.session_state:
-    st.session_state.price_index = load_price_index()
-if "lang" not in st.session_state:
-    st.session_state.lang = "HU"
-if "session_maker" not in st.session_state:
-    st.session_state.session_maker = load_sql_resources()
-
-session_maker = st.session_state.session_maker
+_init_session_state()
 
 # ── Sidebar ──────────────────────────────────────────────────────
 
@@ -512,15 +522,7 @@ if tab_selection == _("nav.tab1"):
         if run_prep:
             with st.spinner(_("tab1.spinner")):
                 try:
-                    # Map era_key to a numeric year for the handler
-                    era_year_map = {
-                        "1900_elott": "1890",
-                        "1900_1945": "1920",
-                        "1945_1970": "1955",
-                        "1970_1990": "1980",
-                        "1990_utan": "2000",
-                    }
-                    era_year = era_year_map.get(era_key, "1955")
+                    era_year = ERAS_TAB1.get(era_key, "1955")
 
                     wall_condition = {}
                     if wall_condition_sel == "fűrészporos_tapéta":
@@ -550,14 +552,7 @@ if tab_selection == _("nav.tab1"):
                         "condition": condition,
                     }
 
-                    from orchestrator.handlers import handle_expert_interview
-                    from orchestrator.policy_service import PolicyService
-                    from orchestrator.skill_registry import SkillRegistry
-
-                    policy = PolicyService()
-                    registry = SkillRegistry()
-                    registry.load_all()
-                    trace_id = f"st-{uuid.uuid4().hex[:12]}"
+                    policy, registry, trace_id = _init_handler()
 
                     result = _run_async(
                         handle_expert_interview(params, policy, registry, trace_id)
@@ -822,15 +817,7 @@ elif tab_selection == _("nav.tab2"):
         if run_plan:
             with st.spinner(_("tab2.spinner")):
                 try:
-                    era_year_map_t2 = {
-                        "1900_elott": "1890",
-                        "1900_1945": "1920",
-                        "1945_1970": "1955",
-                        "1970_1990": "1980",
-                        "1990_utan": "2000",
-                        "ismeretlen": "1980",
-                    }
-                    era_year_t2 = era_year_map_t2.get(era_key_t2, "1980")
+                    era_year_t2 = ERAS_TAB2.get(era_key_t2, "1980")
 
                     wall_cond = {}
                     if wall_condition_t2 == "fűrészporos_tapéta":
@@ -876,14 +863,7 @@ elif tab_selection == _("nav.tab2"):
                         "floor_number": floor_number,
                     }
 
-                    from orchestrator.handlers import handle_construction_planning
-                    from orchestrator.policy_service import PolicyService
-                    from orchestrator.skill_registry import SkillRegistry
-
-                    policy = PolicyService()
-                    registry = SkillRegistry()
-                    registry.load_all()
-                    trace_id = f"st-{uuid.uuid4().hex[:12]}"
+                    policy, registry, trace_id = _init_handler()
 
                     result = _run_async(
                         handle_construction_planning(plan_params, policy, registry, trace_id)
