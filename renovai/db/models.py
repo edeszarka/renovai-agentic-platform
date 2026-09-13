@@ -66,6 +66,9 @@ class LineItemORM(Base):
     quote_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("quotes.id"))
     name_hu: Mapped[str]
     category_key: Mapped[Optional[str]] = mapped_column(ForeignKey("work_categories.key"))
+    # Canonical taxonomy assignment (Phase 2). Additive and nullable; the legacy
+    # category_key above remains untouched. See docs/category_taxonomy.md.
+    category_key_v2: Mapped[Optional[str]] = mapped_column(nullable=True)
     labor_cost_huf: Mapped[Optional[int]]
     material_cost_huf: Mapped[Optional[int]]
     total_cost_huf: Mapped[Optional[int]]
