@@ -5,8 +5,8 @@ Called by the orchestrator when the buyer asks for a renovation budget estimate.
 Reuses the same underlying implementation as mcp_server/server.py: estimate_renovation_cost.
 """
 
-import sys
 import json
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -16,9 +16,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from renovai.predictor.feature_extractor import ApartmentInput, apartment_input_to_features
-from renovai.predictor.price_model import predict, find_similar_quotes
 from renovai.ingestion.inflation_calc import load_price_index
+from renovai.predictor.feature_extractor import (
+    ApartmentInput,
+    apartment_input_to_features,
+)
+from renovai.predictor.price_model import find_similar_quotes, predict
 
 # Map Hungarian scope keywords to apartment input flags
 SCOPE_MAP = {

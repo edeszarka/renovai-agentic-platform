@@ -26,14 +26,14 @@ structural advice is emitted to the buyer.
 ```python
 @dataclass(frozen=True)
 class VibeDiff:
-    vibe_id: str                    # "vd-<uuid hex 12>"
-    trace_id: str                   # Trace from Gateway
-    source: str                     # "expert_interview" | "construction_planning"
-    explanation_hu: str             # Hungarian plain-English reasoning
-    explanation_en: str             # English fallback for internal review
-    key_drivers: list[str]          # Bullet-point causal chain
-    before_snapshot: dict           # Input params received by sub-agent
-    after_snapshot: dict            # Output produced by sub-agent
+    vibe_id: str  # "vd-<uuid hex 12>"
+    trace_id: str  # Trace from Gateway
+    source: str  # "expert_interview" | "construction_planning"
+    explanation_hu: str  # Hungarian plain-English reasoning
+    explanation_en: str  # English fallback for internal review
+    key_drivers: list[str]  # Bullet-point causal chain
+    before_snapshot: dict  # Input params received by sub-agent
+    after_snapshot: dict  # Output produced by sub-agent
     model: str = "gemini-2.0-flash-lite"
 ```
 

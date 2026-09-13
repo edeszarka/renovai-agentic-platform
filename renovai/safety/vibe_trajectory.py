@@ -20,15 +20,14 @@ Usage:
     print(json.dumps(report, indent=2))
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from renovai.safety.audit_trail import AuditStore, AuditEntry
+from renovai.safety.agentic_identity import AgentIdentityManager
+from renovai.safety.audit_trail import AuditStore
 from renovai.safety.telemetry import RenovAITracer
-from renovai.safety.agentic_identity import AgentIdentityManager, AgentIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +50,17 @@ PILLAR_DEFINITIONS: dict[str, str] = {
 @dataclass
 class TrajectoryStep:
     """A single step in the agent's execution trajectory."""
+
     step_id: int
     pillar: str
     component: str
     action: str
-    status: str               # "ok" | "error" | "blocked" | "pending_approval" | "approved"
+    status: str  # "ok" | "error" | "blocked" | "pending_approval" | "approved"
     duration_ms: float
     detail: dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,6 +78,7 @@ class TrajectoryStep:
 @dataclass
 class SafetyEnvelopeResult:
     """Result of validating a single pillar of the Safety Envelope."""
+
     pillar: str
     definition: str
     passed: bool
@@ -88,6 +91,7 @@ class SafetyEnvelopeResult:
 # ---------------------------------------------------------------------------
 # Trajectory Tracker
 # ---------------------------------------------------------------------------
+
 
 class VibeTrajectoryTracker:
     """Records and reports the full Vibe Trajectory across 7 pillars.
@@ -147,7 +151,12 @@ class VibeTrajectoryTracker:
         self._steps.append(step)
         logger.debug(
             "[%s] Trajectory step %d: %s/%s -> %s (%.2fms)",
-            self._trace_id, step.step_id, pillar, action, status, duration_ms,
+            self._trace_id,
+            step.step_id,
+            pillar,
+            action,
+            status,
+            duration_ms,
         )
 
     def generate_report(self) -> dict[str, Any]:
@@ -239,7 +248,7 @@ class VibeTrajectoryTracker:
         """Generate a human-readable summary of the Vibe Trajectory."""
         lines = [
             f"Vibe Trajectory Audit Report",
-            f"{'='*60}",
+            f"{'=' * 60}",
             f"Trace ID: {report.get('trace_id', 'N/A')}",
             f"Intent:   {report.get('user_intent', 'N/A')}",
             f"Time:     {report.get('generated_at', 'N/A')}",
@@ -262,5 +271,5 @@ class VibeTrajectoryTracker:
                 f"{data['total_duration_ms']}ms"
             )
 
-        lines.append(f"{'='*60}")
+        lines.append(f"{'=' * 60}")
         return "\n".join(lines)

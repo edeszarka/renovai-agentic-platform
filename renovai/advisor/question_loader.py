@@ -1,7 +1,7 @@
-import re
 import logging
+import re
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -57,24 +57,34 @@ def get_questions_for_profile(
                 clean = re.sub(r"^\d+\.\s*\*{0,3}", "", stripped).rstrip("*")
                 clean = re.sub(r"\*{2,}", "", clean).strip()
                 if clean:
-                    general_qs.append({
-                        "section": "kerdesek",
-                        "text": clean,
-                    })
+                    general_qs.append(
+                        {
+                            "section": "kerdesek",
+                            "text": clean,
+                        }
+                    )
                     if "Melyik" in clean or "típusa" in clean or "építés" in clean:
                         for sub in range(line_num + 1, min(line_num + 8, len(lines))):
                             sub_line = lines[sub].strip()
                             if sub_line and re.match(r"^[a-z]\)|^-", sub_line):
                                 sub_clean = re.sub(r"^[a-z]\)\s*|^-\s*", "", sub_line)
-                                general_qs.append({
-                                    "section": "kerdesek",
-                                    "text": f"  → {sub_clean}",
-                                })
+                                general_qs.append(
+                                    {
+                                        "section": "kerdesek",
+                                        "text": f"  → {sub_clean}",
+                                    }
+                                )
             continue
 
         lower = stripped.lower()
         is_header = any(k in lower for k in era_kw) and any(k in lower for k in type_kw)
-        if is_header and ("előtt" in lower or "között" in lower or "panel" in lower or "csúszó" in lower or "csuszó" in lower):
+        if is_header and (
+            "előtt" in lower
+            or "között" in lower
+            or "panel" in lower
+            or "csúszó" in lower
+            or "csuszó" in lower
+        ):
             in_relevant_section = True
             continue
         if in_relevant_section and stripped.startswith("***"):
@@ -85,20 +95,24 @@ def get_questions_for_profile(
     items = []
     for rl in relevant_lines:
         if rl.startswith("- ") or rl.startswith("• "):
-            items.append({
-                "section": "ellenorzes",
-                "text": rl.lstrip("- •").strip(),
-            })
+            items.append(
+                {
+                    "section": "ellenorzes",
+                    "text": rl.lstrip("- •").strip(),
+                }
+            )
 
     if condition in ("nagyon_rossz", "kozepes"):
-        items.append({
-            "section": "piros_zaszlo",
-            "text": (
-                f"A lakás állapota '{condition}' — ez jelentős rejtett "
-                f"költségekre utalhat. Mindenképp szakemberrel érdemes "
-                f"átvizsgáltatni a teljes elektromos hálózatot, "
-                f"a víz- és fűtésrendszert, valamint a nyílászárókat."
-            ),
-        })
+        items.append(
+            {
+                "section": "piros_zaszlo",
+                "text": (
+                    f"A lakás állapota '{condition}' — ez jelentős rejtett "
+                    f"költségekre utalhat. Mindenképp szakemberrel érdemes "
+                    f"átvizsgáltatni a teljes elektromos hálózatot, "
+                    f"a víz- és fűtésrendszert, valamint a nyílászárókat."
+                ),
+            }
+        )
 
     return general_qs + items

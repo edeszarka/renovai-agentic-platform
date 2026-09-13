@@ -21,7 +21,8 @@ from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.cloud import logging as google_cloud_logging
 from vertexai.agent_engines.templates.adk import AdkApp
 
-from legacy.adk_agent.agent import app as adk_app, ensure_mcp_tools  # type: ignore[import-untyped]
+from legacy.adk_agent.agent import app as adk_app  # type: ignore[import-untyped]
+from legacy.adk_agent.agent import ensure_mcp_tools
 from legacy.adk_agent.app_utils.telemetry import setup_telemetry
 from legacy.adk_agent.app_utils.typing import Feedback
 
@@ -47,6 +48,7 @@ class AgentEngineApp(AdkApp):
         if gemini_location:
             os.environ["GOOGLE_CLOUD_LOCATION"] = gemini_location
         import asyncio
+
         asyncio.run(ensure_mcp_tools())
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:

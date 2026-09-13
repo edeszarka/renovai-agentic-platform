@@ -78,6 +78,7 @@ CANONICAL_KEYS = tuple(CANONICAL_LABELS)
 # Normalisation
 # ---------------------------------------------------------------------------
 
+
 def fold(text: str) -> str:
     """Lower-case and strip Hungarian accents (ő→o, ű→u, é→e, ...)."""
     text = (text or "").lower()
@@ -102,6 +103,7 @@ def normalize_name(name: Optional[str]) -> str:
 # Tier 1 — lookup
 # ---------------------------------------------------------------------------
 
+
 def load_lookup(path: str | Path = PHASE1_JSON_DEFAULT) -> Dict[str, str]:
     """Build a ``{normalised name_hu: canonical key}`` lookup from Phase 1 output."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -118,6 +120,7 @@ def load_lookup(path: str | Path = PHASE1_JSON_DEFAULT) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 # LLM providers
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class LLMProvider:
@@ -155,18 +158,25 @@ def call_provider(
             last_error = exc
             kind = classify_error(exc)
             if kind == "quota":
-                logger.warning("Provider %s hit quota/rate limit; not retrying", provider.name)
+                logger.warning(
+                    "Provider %s hit quota/rate limit; not retrying", provider.name
+                )
                 raise ProviderError(provider.name, kind, exc) from exc
             if kind == "transient" and attempt < max_retries:
-                delay = backoff_seconds * (2 ** attempt)
+                delay = backoff_seconds * (2**attempt)
                 logger.warning(
                     "Provider %s transient error; retry %d/%d in %.1fs",
-                    provider.name, attempt + 1, max_retries, delay,
+                    provider.name,
+                    attempt + 1,
+                    max_retries,
+                    delay,
                 )
                 sleep(delay)
                 continue
             raise ProviderError(provider.name, kind, exc) from exc
-    raise ProviderError(provider.name, "unknown", last_error or RuntimeError("no attempt"))
+    raise ProviderError(
+        provider.name, "unknown", last_error or RuntimeError("no attempt")
+    )
 
 
 def _openai_json_call(
@@ -202,7 +212,8 @@ def make_groq_provider(model: Optional[str] = None) -> LLMProvider:
     resolved = model or os.getenv("GROQ_MODEL", GROQ_DEFAULT_MODEL)
     base_url = os.getenv("GROQ_BASE_URL", GROQ_DEFAULT_BASE_URL)
     return LLMProvider(
-        "groq", resolved,
+        "groq",
+        resolved,
         _openai_json_call(base_url, "GROQ_API_KEY", resolved, GROQ_MAX_TOKENS),
     )
 
@@ -211,7 +222,8 @@ def make_deepseek_provider(model: Optional[str] = None) -> LLMProvider:
     resolved = model or os.getenv("DEEPSEEK_MODEL", DEEPSEEK_DEFAULT_MODEL)
     base_url = os.getenv("DEEPSEEK_BASE_URL", DEEPSEEK_DEFAULT_BASE_URL)
     return LLMProvider(
-        "deepseek", resolved,
+        "deepseek",
+        resolved,
         _openai_json_call(base_url, "DEEPSEEK_API_KEY", resolved, DEEPSEEK_MAX_TOKENS),
     )
 
@@ -230,6 +242,7 @@ def default_providers() -> List[LLMProvider]:
 # Parsing
 # ---------------------------------------------------------------------------
 
+
 def loads_json(text: str) -> object:
     """Parse JSON, tolerating markdown fences / surrounding prose."""
     text = (text or "").strip()
@@ -241,7 +254,7 @@ def loads_json(text: str) -> object:
     except json.JSONDecodeError:
         start, end = text.find("{"), text.rfind("}")
         if start != -1 and end > start:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         raise
 
 
@@ -261,10 +274,11 @@ def parse_category(text: str) -> Optional[str]:
 # Tiered classification
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ClassificationResult:
     category_key: Optional[str]
-    tier: str                      # "lookup" | "groq" | "deepseek" | "unresolved"
+    tier: str  # "lookup" | "groq" | "deepseek" | "unresolved"
     provider: Optional[str] = None
     model: Optional[str] = None
 
@@ -308,16 +322,21 @@ def classify_line_item(
         category = parse_category(text)
         if category:
             return ClassificationResult(
-                category_key=category, tier=provider.name,
-                provider=provider.name, model=provider.model,
+                category_key=category,
+                tier=provider.name,
+                provider=provider.name,
+                model=provider.model,
             )
-        logger.warning("Tier %s returned an invalid category for %r", provider.name, name_hu)
+        logger.warning(
+            "Tier %s returned an invalid category for %r", provider.name, name_hu
+        )
     return ClassificationResult(category_key=None, tier="unresolved")
 
 
 # ---------------------------------------------------------------------------
 # Task B — "szigeteles" re-examination rule
 # ---------------------------------------------------------------------------
+
 
 def _is_chimney_lining(text: str) -> bool:
     return "kemeny" in text and "belel" in text
@@ -369,10 +388,10 @@ class SzigetelesReexamResult:
     item_id: str
     name_hu: str
     previous_category: str
-    final_category: Optional[str]     # None == needs_human_review
+    final_category: Optional[str]  # None == needs_human_review
     llm_category: Optional[str]
     reason: str
-    tier: str                         # "groq" | "deepseek" | "rule" | "unresolved"
+    tier: str  # "groq" | "deepseek" | "rule" | "unresolved"
     provider: Optional[str] = None
     model: Optional[str] = None
 
@@ -454,23 +473,31 @@ def reexamine_szigeteles_items(
     results: List[SzigetelesReexamResult] = []
     items = list(items)
     for start in range(0, len(items), batch_size):
-        batch = items[start:start + batch_size]
+        batch = items[start : start + batch_size]
         prompt = _build_reexam_prompt(batch)
         decisions: Dict[int, tuple] = {}
         tier, provider_name, model_name = "rule", None, None
         for provider in resolved:
             try:
-                text = call_provider(provider, prompt, max_retries=max_retries, sleep=sleep)
+                text = call_provider(
+                    provider, prompt, max_retries=max_retries, sleep=sleep
+                )
             except ProviderError as exc:
                 logger.warning("Re-exam tier %s failed: %s", provider.name, exc)
                 continue
             try:
                 decisions = _parse_reexam_response(text, len(batch))
             except (json.JSONDecodeError, ValueError) as exc:
-                logger.warning("Re-exam tier %s returned invalid JSON: %s", provider.name, exc)
+                logger.warning(
+                    "Re-exam tier %s returned invalid JSON: %s", provider.name, exc
+                )
                 decisions = {}
             if decisions:
-                tier, provider_name, model_name = provider.name, provider.name, provider.model
+                tier, provider_name, model_name = (
+                    provider.name,
+                    provider.name,
+                    provider.model,
+                )
                 break
         for local_id, item in enumerate(batch):
             llm_category, reason = decisions.get(local_id, (None, ""))

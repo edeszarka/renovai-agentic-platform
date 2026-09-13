@@ -107,6 +107,7 @@ class Provider:
 # Error classification
 # ---------------------------------------------------------------------------
 
+
 def classify_error(exc: BaseException) -> str:
     """Return ``"quota"``, ``"transient"`` or ``"permanent"`` for an exception.
 
@@ -133,6 +134,7 @@ def classify_error(exc: BaseException) -> str:
 # ---------------------------------------------------------------------------
 # Provider callables
 # ---------------------------------------------------------------------------
+
 
 def _deepseek_call(prompt: str, response_json: bool) -> ProviderResponse:
     api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -173,7 +175,9 @@ def _gemini_call(prompt: str, response_json: bool) -> ProviderResponse:
         max_output_tokens=8192,
         response_mime_type="application/json" if response_json else "text/plain",
     )
-    response = client.models.generate_content(model=model, contents=prompt, config=config)
+    response = client.models.generate_content(
+        model=model, contents=prompt, config=config
+    )
     text = (response.text or "").strip()
     if not text:
         raise LLMError(f"Gemini ({model}) returned empty content")
@@ -193,6 +197,7 @@ def resolve_providers() -> List[Provider]:
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
+
 
 def call_llm(
     prompt: str,
@@ -221,9 +226,13 @@ def call_llm(
             try:
                 response = provider.call(prompt, response_json)
                 logger.info(
-                    "LLM call served by provider=%s model=%s", provider.name, response.model
+                    "LLM call served by provider=%s model=%s",
+                    provider.name,
+                    response.model,
                 )
-                return LLMResult(text=response.text, provider=provider.name, model=response.model)
+                return LLMResult(
+                    text=response.text, provider=provider.name, model=response.model
+                )
             except Exception as exc:  # noqa: BLE001 - policy decides what to do
                 kind = classify_error(exc)
                 failures.append(f"{provider.name} ({kind}): {exc}")
@@ -235,7 +244,7 @@ def call_llm(
                     )
                     break  # fail over to next provider (or raise below)
                 if kind == "transient" and attempt < max_retries:
-                    delay = backoff_seconds * (2 ** attempt)
+                    delay = backoff_seconds * (2**attempt)
                     logger.warning(
                         "Provider %s transient error; retry %d/%d in %.1fs: %s",
                         provider.name,
@@ -246,7 +255,9 @@ def call_llm(
                     )
                     sleep(delay)
                     continue
-                logger.warning("Provider %s failed (%s); not retrying", provider.name, kind)
+                logger.warning(
+                    "Provider %s failed (%s); not retrying", provider.name, kind
+                )
                 break  # exhausted retries / permanent -> next provider
 
     message = "All LLM providers failed: " + " | ".join(failures)

@@ -12,16 +12,16 @@ Zero Ambient Authority: handlers do not inherit permissions from the
 gateway or from each other. Every tool call must pass through policy.
 """
 
-import os
 import json
 import logging
+import os
 import subprocess
+from datetime import date
 from pathlib import Path
 from typing import Any
-from datetime import date
 
+from renovai.predictor.product_pricing import door_install, lookup, normalize_tier
 from renovai.safety.green_team import GreenTeamService
-from renovai.predictor.product_pricing import lookup, door_install, normalize_tier
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,10 @@ def _build_owner_purchased_items(params: dict[str, Any]) -> tuple[dict, list, li
         size = spec.get("tile_size") or "60x60"
         try:
             lo, hi = lookup("tile", tier, size=size)
-            add(f"Csempe/járólap ({size}, {tile_sqm:.0f} nm)", (qty(tile_sqm, lo or 0), qty(tile_sqm, hi or 0)))
+            add(
+                f"Csempe/járólap ({size}, {tile_sqm:.0f} nm)",
+                (qty(tile_sqm, lo or 0), qty(tile_sqm, hi or 0)),
+            )
         except KeyError as exc:
             warnings.append(f"Tulajdonosi csempe kihagyva: {exc}")
 
@@ -143,7 +146,10 @@ def _build_owner_purchased_items(params: dict[str, Any]) -> tuple[dict, list, li
         thickness = spec.get("laminate_thickness") or "8mm"
         try:
             lo, hi = lookup("laminate", tier, thickness=thickness)
-            add(f"Laminált padló ({thickness}, {lam_sqm:.0f} nm)", (qty(lam_sqm, lo or 0), qty(lam_sqm, hi or 0)))
+            add(
+                f"Laminált padló ({thickness}, {lam_sqm:.0f} nm)",
+                (qty(lam_sqm, lo or 0), qty(lam_sqm, hi or 0)),
+            )
         except KeyError as exc:
             warnings.append(f"Tulajdonosi laminált kihagyva: {exc}")
 
@@ -155,8 +161,14 @@ def _build_owner_purchased_items(params: dict[str, Any]) -> tuple[dict, list, li
         try:
             lo, hi = lookup("door", tier, door_type=door_type, glass=glass)
             ilo, ihi = door_install(door_type, glass)
-            add(f"Beltéri ajtók ({n_doors} db, {glass})", (n_doors * (lo or 0), n_doors * (hi or 0)))
-            add("Ajtó beszerelés (munkadíj)", (n_doors * (ilo or 0), n_doors * (ihi or 0)))
+            add(
+                f"Beltéri ajtók ({n_doors} db, {glass})",
+                (n_doors * (lo or 0), n_doors * (hi or 0)),
+            )
+            add(
+                "Ajtó beszerelés (munkadíj)",
+                (n_doors * (ilo or 0), n_doors * (ihi or 0)),
+            )
         except KeyError as exc:
             warnings.append(f"Tulajdonosi ajtó kihagyva: {exc}")
 
@@ -179,7 +191,11 @@ def _build_owner_purchased_items(params: dict[str, Any]) -> tuple[dict, list, li
         except KeyError as exc:
             warnings.append(f"Tulajdonosi gép kihagyva ({app}): {exc}")
 
-    return {"low_huf": int(low), "mid_huf": int(mid), "high_huf": int(high)}, details, warnings
+    return (
+        {"low_huf": int(low), "mid_huf": int(mid), "high_huf": int(high)},
+        details,
+        warnings,
+    )
 
 
 async def handle_cost_estimation(
@@ -210,7 +226,10 @@ async def handle_cost_estimation(
 
     # Semantic gate on input params
     sem = await policy_service.check_semantic(
-        params, trace_id, role="cost_estimator", action="produce_estimate",
+        params,
+        trace_id,
+        role="cost_estimator",
+        action="produce_estimate",
     )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
@@ -224,15 +243,23 @@ async def handle_cost_estimation(
     # Load reference pricing (Layer 3) if skill has it
     pricing_ref = None
     if skill and skill.has_references:
-        pricing_path = skill_registry.get_reference_path("cost_estimate", "work_categories.md")
+        pricing_path = skill_registry.get_reference_path(
+            "cost_estimate", "work_categories.md"
+        )
         if pricing_path:
             pricing_ref = pricing_path.read_text(encoding="utf-8")
 
     # --- Core estimation logic ---
     try:
-        from renovai.predictor.price_model import scope_matched_estimate, find_similar_quotes
         from renovai.ingestion.inflation_calc import load_price_index
-        from renovai.predictor.feature_extractor import ApartmentInput, apartment_input_to_features
+        from renovai.predictor.feature_extractor import (
+            ApartmentInput,
+            apartment_input_to_features,
+        )
+        from renovai.predictor.price_model import (
+            find_similar_quotes,
+            scope_matched_estimate,
+        )
     except ImportError:
         return {
             "status": "error",
@@ -277,20 +304,25 @@ async def handle_cost_estimation(
         target_date = params.get("target_date") or date.today().isoformat()
 
         # Use scope-matched estimation (DB-backed, preferred over legacy predict)
-        from renovai.db.session import get_engine, get_session_maker
         from renovai.db.models import Base
+        from renovai.db.session import get_engine, get_session_maker
 
         db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
         engine = get_engine(db_url)
         session_maker = get_session_maker(engine)
 
         estimate = await scope_matched_estimate(
-            apt, session_maker, price_index, date.fromisoformat(target_date),
+            apt,
+            session_maker,
+            price_index,
+            date.fromisoformat(target_date),
         )
 
         # Find similar quotes
         similar = find_similar_quotes(
-            apartment_input_to_features(apt), data_root / "processed" / "quotes_json", top_k=3,
+            apartment_input_to_features(apt),
+            data_root / "processed" / "quotes_json",
+            top_k=3,
         )
 
         warnings = []
@@ -302,11 +334,15 @@ async def handle_cost_estimation(
 
         # --- Structural cost drivers (on top of corpus-based estimate) ---
         from renovai.predictor.structural_cost import (
-            ceiling_height_multiplier, apply_height_surcharge,
-            detect_active_chains, chain_total_cost,
+            CostBreakdownOutput,
+            apply_height_surcharge,
             apply_infrastructure_minimums,
-            compute_logistics_surcharge, elevator_surcharge,
-            chimney_technician_cost, CostBreakdownOutput,
+            ceiling_height_multiplier,
+            chain_total_cost,
+            chimney_technician_cost,
+            compute_logistics_surcharge,
+            detect_active_chains,
+            elevator_surcharge,
         )
 
         scope = params.get("scope_flags", {})
@@ -339,7 +375,9 @@ async def handle_cost_estimation(
         painting_share = int(base_mid * 0.15)
         painting_labor = int(painting_share * 0.70)
         adj_labor, height_surcharge = apply_height_surcharge(
-            ceiling_height, area_sqm, painting_labor,
+            ceiling_height,
+            area_sqm,
+            painting_labor,
         )
         base_low += int(height_surcharge * 0.85)
         base_mid += height_surcharge
@@ -347,10 +385,14 @@ async def handle_cost_estimation(
         adjustments["height_surcharge_huf"] = height_surcharge
 
         # 2 — Cascading cost chains (area-scaled: materials like EPS, concrete, flooring scale with m²)
-        active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating, building_type)
+        active_chains = detect_active_chains(
+            scope, building_era, floor_number, gas_heating, building_type
+        )
         chain_costs = chain_total_cost(
-            active_chains, area_sqm=area_sqm,
-            target_date=date.fromisoformat(target_date), price_index=price_index,
+            active_chains,
+            area_sqm=area_sqm,
+            target_date=date.fromisoformat(target_date),
+            price_index=price_index,
         )
         chain_delta = chain_costs["point"]
         if chain_delta:
@@ -377,8 +419,13 @@ async def handle_cost_estimation(
             scope.get(k, False) for k in ("demolition", "electrical", "plumbing")
         )
         min_low, min_mid, min_high, min_logs = apply_infrastructure_minimums(
-            base_low, base_mid, base_high, is_full, gas_heating,
-            target_date=date.fromisoformat(target_date), price_index=price_index,
+            base_low,
+            base_mid,
+            base_high,
+            is_full,
+            gas_heating,
+            target_date=date.fromisoformat(target_date),
+            price_index=price_index,
         )
         infra_delta = min_mid - base_mid
         base_low, base_mid, base_high = min_low, min_mid, min_high
@@ -411,8 +458,11 @@ async def handle_cost_estimation(
         chim_cost = (
             chimney_technician_cost(
                 floor_number,
-                target_date=date.fromisoformat(target_date), price_index=price_index,
-            ) if gas_heating else 0
+                target_date=date.fromisoformat(target_date),
+                price_index=price_index,
+            )
+            if gas_heating
+            else 0
         )
         if chim_cost:
             base_low += int(chim_cost * 0.85)
@@ -432,7 +482,9 @@ async def handle_cost_estimation(
         # Material-only product subtotal from the owner side; door install labor
         # (contractor work) is included so the budget stays complete. No-op when
         # params["owner_purchased"] is absent.
-        owner_result, owner_details, owner_warnings = _build_owner_purchased_items(params)
+        owner_result, owner_details, owner_warnings = _build_owner_purchased_items(
+            params
+        )
         if owner_result["mid_huf"]:
             base_low += owner_result["low_huf"]
             base_mid += owner_result["mid_huf"]
@@ -446,7 +498,11 @@ async def handle_cost_estimation(
         for k, v in adjustments.items():
             if v:
                 adj_parts.append(f"{k}={v:,}Ft")
-        adj_summary = "Structural adjustments: " + ", ".join(adj_parts) if adj_parts else "No structural adjustments applied."
+        adj_summary = (
+            "Structural adjustments: " + ", ".join(adj_parts)
+            if adj_parts
+            else "No structural adjustments applied."
+        )
 
         base_estimate_out = {
             "estimate_low_huf": estimate.get("estimate_low_huf", 0),
@@ -497,7 +553,12 @@ async def handle_cost_estimation(
                 "adjustment_summary": adj_summary,
                 "owner_purchased_items": owner_details,
                 "active_chains": [
-                    {"id": c["id"], "cost_point": c["base_cost_point"] + c["per_sqm_cost_point"] * area_sqm, "description": c["description"]}
+                    {
+                        "id": c["id"],
+                        "cost_point": c["base_cost_point"]
+                        + c["per_sqm_cost_point"] * area_sqm,
+                        "description": c["description"],
+                    }
                     for c in active_chains
                 ],
                 **_green_team,
@@ -535,7 +596,10 @@ async def handle_ingestion(
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
     sem = await policy_service.check_semantic(
-        params, trace_id, role="ingestion", action="spawn_sandbox",
+        params,
+        trace_id,
+        role="ingestion",
+        action="spawn_sandbox",
     )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
@@ -552,8 +616,8 @@ async def handle_ingestion(
         }
 
     try:
-        from sandbox.ingest_sandboxed import run_sandboxed, merge_into_db
         from renovai.ingestion.models import RenovationQuote
+        from sandbox.ingest_sandboxed import merge_into_db, run_sandboxed
     except ImportError:
         return {
             "status": "error",
@@ -571,7 +635,11 @@ async def handle_ingestion(
             quote = RenovationQuote(**result)
             merge_result = merge_into_db(quote)
             if merge_result.get("status") != "ok":
-                return {"status": "error", "error": str(merge_result), "trace_id": trace_id}
+                return {
+                    "status": "error",
+                    "error": str(merge_result),
+                    "trace_id": trace_id,
+                }
 
         return {
             "status": "ok",
@@ -614,7 +682,10 @@ async def handle_market_analysis(
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
     sem = await policy_service.check_semantic(
-        params, trace_id, role="market_analyst", action="execute_sql",
+        params,
+        trace_id,
+        role="market_analyst",
+        action="execute_sql",
     )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
@@ -630,7 +701,9 @@ async def handle_market_analysis(
         }
 
     try:
-        engine = get_engine(os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"))
+        engine = get_engine(
+            os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
+        )
         session_maker = get_session_maker(engine)
         sql_engine = TextToSQLEngine()
 
@@ -680,7 +753,10 @@ async def handle_due_diligence(
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
     sem = await policy_service.check_semantic(
-        params, trace_id, role="due_diligence", action="generate_advisory",
+        params,
+        trace_id,
+        role="due_diligence",
+        action="generate_advisory",
     )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
@@ -690,12 +766,12 @@ async def handle_due_diligence(
 
     try:
         from renovai.advisor.pre_purchase import ApartmentProfile, generate_report
-        from renovai.rag.pipeline import RAGPipeline
-        from renovai.rag.vector_store import RenovAIVectorStore, VectorStoreConfig
-        from renovai.rag.embedder import EmbedderConfig, embed_chunks
-        from renovai.rag.retriever import RetrievalConfig
-        from renovai.rag.gemini_client import GeminiConfig
         from renovai.ingestion.inflation_calc import load_price_index
+        from renovai.rag.embedder import EmbedderConfig, embed_chunks
+        from renovai.rag.gemini_client import GeminiConfig
+        from renovai.rag.pipeline import RAGPipeline
+        from renovai.rag.retriever import RetrievalConfig
+        from renovai.rag.vector_store import RenovAIVectorStore, VectorStoreConfig
     except ImportError:
         return {
             "status": "error",
@@ -771,7 +847,9 @@ async def handle_due_diligence(
             proposed_action="generate_advisory",
             confidence=0.90,
             semantic_risk={
-                "alacsony": "low", "közepes": "medium", "magas": "high",
+                "alacsony": "low",
+                "közepes": "medium",
+                "magas": "high",
             }.get(report.overall_risk, "low"),
             proposed_response={"overall_risk": report.overall_risk},
         )
@@ -809,6 +887,7 @@ async def handle_due_diligence(
 # Expert Interviewer handler (Tab 1: building-physics due diligence)
 # ---------------------------------------------------------------------------
 
+
 async def handle_expert_interview(
     params: dict[str, Any],
     policy_service: Any,
@@ -837,7 +916,10 @@ async def handle_expert_interview(
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
     sem = await policy_service.check_semantic(
-        params, trace_id, role="expert_interviewer", action="assess_risk",
+        params,
+        trace_id,
+        role="expert_interviewer",
+        action="assess_risk",
     )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
@@ -850,7 +932,9 @@ async def handle_expert_interview(
     building_type = params.get("building_type", "unknown")
     floor_construction = params.get("floor_construction", "")
     wall_condition = params.get("wall_condition", {})
-    has_slag = params.get("scope_flags", {}).get("slag", False) or "salak" in str(params)
+    has_slag = params.get("scope_flags", {}).get("slag", False) or "salak" in str(
+        params
+    )
 
     red_flags: list[dict] = []
     questions: list[str] = []
@@ -859,19 +943,25 @@ async def handle_expert_interview(
     risk_factors: list[str] = []
 
     # Red-flag priority 1: Pre-1960 slag (CRITICAL)
-    if has_slag or (building_era and building_era.isdigit() and int(building_era) < 1960):
-        red_flags.append({
-            "risk": "CRITICAL",
-            "title": "Kohósalak a födémben",
-            "detail": (
-                "Az acél gerendás födém kohósalak kitöltése idővel nedvességet "
-                "szív, ami a gerendák korróziójához és a födém süllyedéséhez vezet."
-            ),
-            "estimated_cost": "3 000 - 5 000 Ft/nm eltávolítás",
-            "action": "Statikus szakvélemény és salakmentesítés szükséges.",
-        })
+    if has_slag or (
+        building_era and building_era.isdigit() and int(building_era) < 1960
+    ):
+        red_flags.append(
+            {
+                "risk": "CRITICAL",
+                "title": "Kohósalak a födémben",
+                "detail": (
+                    "Az acél gerendás födém kohósalak kitöltése idővel nedvességet "
+                    "szív, ami a gerendák korróziójához és a födém süllyedéséhez vezet."
+                ),
+                "estimated_cost": "3 000 - 5 000 Ft/nm eltávolítás",
+                "action": "Statikus szakvélemény és salakmentesítés szükséges.",
+            }
+        )
         recommended_experts.append("Statikus (statical engineer)")
-        questions.append("Van-e ismert salak a födémben? Történt-e már salakmentesítés?")
+        questions.append(
+            "Van-e ismert salak a födémben? Történt-e már salakmentesítés?"
+        )
         checklist.append("Ellenőrizze a pince vagy alulról látható födémszerkezetet")
         risk_factors.append("kohósalak")
 
@@ -879,16 +969,18 @@ async def handle_expert_interview(
     if building_type == "panel" and building_era and building_era.isdigit():
         era_year = int(building_era)
         if 1965 <= era_year <= 1985:
-            red_flags.append({
-                "risk": "HIGH",
-                "title": "Alumínium vezetékek a villanyhálózatban",
-                "detail": (
-                    "A 70-es évek panel épületeiben gyakori az alumínium "
-                    "vezeték, amely idővel törékennyé válik és tűzveszélyes."
-                ),
-                "estimated_cost": "3 000 - 5 000 Ft/nm csere",
-                "action": "Villanyszerelői átvizsgálás és teljes vezetékcsere javasolt.",
-            })
+            red_flags.append(
+                {
+                    "risk": "HIGH",
+                    "title": "Alumínium vezetékek a villanyhálózatban",
+                    "detail": (
+                        "A 70-es évek panel épületeiben gyakori az alumínium "
+                        "vezeték, amely idővel törékennyé válik és tűzveszélyes."
+                    ),
+                    "estimated_cost": "3 000 - 5 000 Ft/nm csere",
+                    "action": "Villanyszerelői átvizsgálás és teljes vezetékcsere javasolt.",
+                }
+            )
             recommended_experts.append("Villanyszerelő (electrician)")
             questions.append("Mikor volt utoljára a villanyhálózat felújítva?")
             checklist.append("Kérje el a villanyhálózati dokumentációt")
@@ -896,23 +988,25 @@ async def handle_expert_interview(
 
     # Red-flag priority 3: Pre-1920 brick foundation (HIGH) - Födém megerősítés
     if building_era and building_era.isdigit() and int(building_era) < 1920:
-        red_flags.append({
-            "risk": "HIGH",
-            "title": "Alapozási kockázat (régi tégla épület)",
-            "detail": (
-                "Az 1920 előtt épült tégla épületek alapozása gyakran "
-                "mészkő vagy tégla alap, ami idővel süllyedhet. "
-                "A tégla boltíves acél gerendás födém megerősítése szükséges."
-            ),
-            "estimated_cost": (
-                "Födém megerősítés: ~402 000 Ft anyag, "
-                "320 000 - 420 000 Ft munkadíj"
-            ),
-            "action": (
-                "Statikus szakvélemény a födém és alapozás állapotáról. "
-                "Tégla boltíves acél gerendás födém esetén erősítés szükséges."
-            ),
-        })
+        red_flags.append(
+            {
+                "risk": "HIGH",
+                "title": "Alapozási kockázat (régi tégla épület)",
+                "detail": (
+                    "Az 1920 előtt épült tégla épületek alapozása gyakran "
+                    "mészkő vagy tégla alap, ami idővel süllyedhet. "
+                    "A tégla boltíves acél gerendás födém megerősítése szükséges."
+                ),
+                "estimated_cost": (
+                    "Födém megerősítés: ~402 000 Ft anyag, "
+                    "320 000 - 420 000 Ft munkadíj"
+                ),
+                "action": (
+                    "Statikus szakvélemény a födém és alapozás állapotáról. "
+                    "Tégla boltíves acél gerendás födém esetén erősítés szükséges."
+                ),
+            }
+        )
         recommended_experts.append("Statikus (statical engineer)")
         questions.append("Van-e repedés a teherhordó falakon? Egyenletesek-e a padlók?")
         checklist.append("Ellenőrizze a függőleges és vízszintes repedéseket a falakon")
@@ -921,35 +1015,43 @@ async def handle_expert_interview(
     # Red-flag: 1920-1965 betontálcás födém (MEDIUM) — walls can start from slab
     if building_era and building_era.isdigit() and 1920 <= int(building_era) <= 1965:
         if "betontálcás" in floor_construction or "beton" in floor_construction:
-            red_flags.append({
-                "risk": "MEDIUM",
-                "title": "Betontálcás födém — falak indíthatók a födémről",
-                "detail": (
-                    "A betontálcás vasbeton gerendás födém esetén az új falak "
-                    "közvetlenül a födémről indíthatók, megerősítés nem szükséges."
-                ),
-                "estimated_cost": "Nincs plusz költség (megerősítés nem szükséges)",
-                "action": (
-                    "Beton tálcáról indítható a fal, megerősítés nem szükséges. "
-                    "Tervezéskor ezt vegye figyelembe."
-                ),
-            })
-            checklist.append("Ellenőrizze a födém típusát — betontálcás esetén nincs szükség megerősítésre")
+            red_flags.append(
+                {
+                    "risk": "MEDIUM",
+                    "title": "Betontálcás födém — falak indíthatók a födémről",
+                    "detail": (
+                        "A betontálcás vasbeton gerendás födém esetén az új falak "
+                        "közvetlenül a födémről indíthatók, megerősítés nem szükséges."
+                    ),
+                    "estimated_cost": "Nincs plusz költség (megerősítés nem szükséges)",
+                    "action": (
+                        "Beton tálcáról indítható a fal, megerősítés nem szükséges. "
+                        "Tervezéskor ezt vegye figyelembe."
+                    ),
+                }
+            )
+            checklist.append(
+                "Ellenőrizze a födém típusát — betontálcás esetén nincs szükség megerősítésre"
+            )
             risk_factors.append("betontálcás födém")
 
     # Red-flag priority 4: Sawdust wallpaper (MEDIUM)
     if wall_condition.get("wallpaper", False):
-        red_flags.append({
-            "risk": "MEDIUM",
-            "title": "Fűrészporos tapéta a falakon",
-            "detail": (
-                "A fűrészporos tapéta alatt általában nincs vakolat. "
-                "Eltávolítása plusz költséggel és Q3 minőségű újravakolással jár."
-            ),
-            "estimated_cost": "80 000 - 100 000 Ft anyag, 180 000 - 280 000 Ft munkadíj",
-            "action": "Tapéta kaparás és Q3 minőségű vakolás szükséges.",
-        })
-        checklist.append("Koppintson a falakra — üreges hang tapéta alatti vakolathiányra utal")
+        red_flags.append(
+            {
+                "risk": "MEDIUM",
+                "title": "Fűrészporos tapéta a falakon",
+                "detail": (
+                    "A fűrészporos tapéta alatt általában nincs vakolat. "
+                    "Eltávolítása plusz költséggel és Q3 minőségű újravakolással jár."
+                ),
+                "estimated_cost": "80 000 - 100 000 Ft anyag, 180 000 - 280 000 Ft munkadíj",
+                "action": "Tapéta kaparás és Q3 minőségű vakolás szükséges.",
+            }
+        )
+        checklist.append(
+            "Koppintson a falakra — üreges hang tapéta alatti vakolathiányra utal"
+        )
         risk_factors.append("tapéta")
 
     # Build confidence
@@ -994,9 +1096,15 @@ async def handle_expert_interview(
         proposed_action="assess_risk",
         confidence=confidence_score,
         semantic_risk={
-            "LOW": "low", "MEDIUM": "medium", "HIGH": "high", "CRITICAL": "critical",
+            "LOW": "low",
+            "MEDIUM": "medium",
+            "HIGH": "high",
+            "CRITICAL": "critical",
         }.get(overall_risk, "low"),
-        proposed_response={"overall_risk": overall_risk, "num_red_flags": num_red_flags},
+        proposed_response={
+            "overall_risk": overall_risk,
+            "num_red_flags": num_red_flags,
+        },
     )
 
     return {
@@ -1022,6 +1130,7 @@ async def handle_expert_interview(
 # ---------------------------------------------------------------------------
 # Construction Planner handler (Tab 2: technical sequencing & cost logic)
 # ---------------------------------------------------------------------------
+
 
 async def handle_construction_planning(
     params: dict[str, Any],
@@ -1049,12 +1158,17 @@ async def handle_construction_planning(
         "total_estimate": {"low_huf": int, "mid_huf": int, "high_huf": int},
         "warnings": [...], "confidence": {...} }
     """
-    sr = policy_service.check_structural("construction_planner", "generate_sequence", trace_id)
+    sr = policy_service.check_structural(
+        "construction_planner", "generate_sequence", trace_id
+    )
     if not sr.passed:
         return {"status": "error", "error": sr.reason, "trace_id": trace_id}
 
     sem = await policy_service.check_semantic(
-        params, trace_id, role="construction_planner", action="generate_sequence",
+        params,
+        trace_id,
+        role="construction_planner",
+        action="generate_sequence",
     )
     if not sem.passed:
         return {"status": "error", "error": sem.reason, "trace_id": trace_id}
@@ -1092,7 +1206,9 @@ async def handle_construction_planning(
     has_shower = scope.get("built_in_shower", False)
     is_full_renovation = params.get("renovation_scope", "full") == "full"
     era_int = int(building_era) if building_era and building_era.isdigit() else 9999
-    floor_work_requested = scope.get("flooring", False) or scope.get("demolition", False)
+    floor_work_requested = scope.get("flooring", False) or scope.get(
+        "demolition", False
+    )
     slag_from_flags = scope.get("slag", False)
     if not slag_from_flags and era_int < 1960 and floor_work_requested:
         slag_from_flags = True
@@ -1117,18 +1233,26 @@ async def handle_construction_planning(
         suspected_slag=slag_from_flags,
     )
     try:
-        from renovai.predictor.price_model import scope_matched_estimate
         from renovai.db.session import get_engine, get_session_maker
+        from renovai.predictor.price_model import scope_matched_estimate
 
         db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
         estimator_engine = get_engine(db_url)
         estimator_sm = get_session_maker(estimator_engine)
         plan_est = await scope_matched_estimate(
-            plan_apt, estimator_sm, price_index, target_date, include_breakdown=True,
+            plan_apt,
+            estimator_sm,
+            price_index,
+            target_date,
+            include_breakdown=True,
         )
         categories = plan_est.get("categories", {}) if plan_est else {}
     except Exception as exc:
-        logger.warning("[%s] scope_matched_estimate failed: %s — falling back to hardcoded", trace_id, exc)
+        logger.warning(
+            "[%s] scope_matched_estimate failed: %s — falling back to hardcoded",
+            trace_id,
+            exc,
+        )
         categories = {}
         plan_est = None
 
@@ -1159,14 +1283,26 @@ async def handle_construction_planning(
 
     # Sparse-category corpus support tracking
     # Categories with < 2 quotes in the DB corpus get a data-limitation warning
-    SPARSE_FLAGS = {"insulation", "windows_doors", "kitchen", "bathroom", "drywall", "ac", "heating"}
+    SPARSE_FLAGS = {
+        "insulation",
+        "windows_doors",
+        "kitchen",
+        "bathroom",
+        "drywall",
+        "ac",
+        "heating",
+    }
 
     from renovai.predictor.structural_cost import (
-        ceiling_height_multiplier, apply_height_surcharge,
-        detect_active_chains, chain_total_cost,
+        CostBreakdownOutput,
+        apply_height_surcharge,
         apply_infrastructure_minimums,
-        compute_logistics_surcharge, elevator_surcharge,
-        chimney_technician_cost, CostBreakdownOutput,
+        ceiling_height_multiplier,
+        chain_total_cost,
+        chimney_technician_cost,
+        compute_logistics_surcharge,
+        detect_active_chains,
+        elevator_surcharge,
     )
 
     phases: list[dict] = []
@@ -1201,36 +1337,41 @@ async def handle_construction_planning(
         slag_labor_total_low = slag_labor_low
         slag_labor_total_high = slag_labor_high
 
-        phases.append({
-            "step": 0,
-            "name": "Kohósalak lánc — Teljes salakmentesítés",
-            "description": (
-                "Teljes kohósalak lánc: salak eltávolítás, EPS szigetelés, "
-                "betonozás és szintezés. Statikus felügyelet mellett."
-            ),
-            "material_cost_range": f"{slag_mat_total_low:,} - {slag_mat_total_high:,} Ft",
-            "labor_cost_range": f"{slag_labor_total_low:,} - {slag_labor_total_high:,} Ft",
-            "slag_breakdown": {
-                "removal_labor": f"{slag_labor_low:,} - {slag_labor_high:,} Ft",
-                "eps_material": f"{slag_eps_low:,} - {slag_eps_high:,} Ft",
-                "concrete_leveling": f"{slag_concrete_low:,} - {slag_concrete_high:,} Ft  ({slag_concrete_per_sqm_low:,} - {slag_concrete_per_sqm_high:,} Ft/nm)",
-            },
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": 0,
+                "name": "Kohósalak lánc — Teljes salakmentesítés",
+                "description": (
+                    "Teljes kohósalak lánc: salak eltávolítás, EPS szigetelés, "
+                    "betonozás és szintezés. Statikus felügyelet mellett."
+                ),
+                "material_cost_range": f"{slag_mat_total_low:,} - {slag_mat_total_high:,} Ft",
+                "labor_cost_range": f"{slag_labor_total_low:,} - {slag_labor_total_high:,} Ft",
+                "slag_breakdown": {
+                    "removal_labor": f"{slag_labor_low:,} - {slag_labor_high:,} Ft",
+                    "eps_material": f"{slag_eps_low:,} - {slag_eps_high:,} Ft",
+                    "concrete_leveling": f"{slag_concrete_low:,} - {slag_concrete_high:,} Ft  ({slag_concrete_per_sqm_low:,} - {slag_concrete_per_sqm_high:,} Ft/nm)",
+                },
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += slag_mat_total_low + slag_labor_total_low
         total_high += slag_mat_total_high + slag_labor_total_high
         total_labor_low += slag_labor_total_low
         total_labor_high += slag_labor_total_high
         warnings.append(
-            "Salak lánc: eltávolítás → EPS → betonozás. "
-            "Statikus szakvélemény kötelező!"
+            "Salak lánc: eltávolítás → EPS → betonozás. Statikus szakvélemény kötelező!"
         )
 
     # Chain: Ajtó/Padló-lánc (triggers for pre-1970 + windows_doors/flooring)
-    active_chains = detect_active_chains(scope, building_era, floor_number, gas_heating, building_type)
+    active_chains = detect_active_chains(
+        scope, building_era, floor_number, gas_heating, building_type
+    )
     chain_costs = chain_total_cost(
-        active_chains, area_sqm=area_sqm,
-        target_date=target_date, price_index=price_index,
+        active_chains,
+        area_sqm=area_sqm,
+        target_date=target_date,
+        price_index=price_index,
     )
     # Pydantic guard: fail loudly if a triggered chain is missing from the
     # breakdown instead of silently returning 0.
@@ -1245,15 +1386,17 @@ async def handle_construction_planning(
     )
     if chain_costs["point"]:
         chain = active_chains[0]
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Ajtó/Padló lánc — Teljes aljzatfelújítás",
-            "description": " → ".join(chain["steps"]),
-            "material_cost_range": f"{chain_costs['low']:,} - {chain_costs['high']:,} Ft",
-            "labor_cost_range": "0 Ft (lánc anyagköltségben benne)",
-            "chain_id": chain["id"],
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Ajtó/Padló lánc — Teljes aljzatfelújítás",
+                "description": " → ".join(chain["steps"]),
+                "material_cost_range": f"{chain_costs['low']:,} - {chain_costs['high']:,} Ft",
+                "labor_cost_range": "0 Ft (lánc anyagköltségben benne)",
+                "chain_id": chain["id"],
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += chain_costs["low"]
         total_high += chain_costs["high"]
         warnings.append(
@@ -1271,14 +1414,16 @@ async def handle_construction_planning(
             demo_lab_low = int(1000 * area_sqm)
             demo_lab_high = int(2000 * area_sqm)
             dd_src = "hardcoded_2025"
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Bontás (Demolition)",
-            "description": "Régi burkolatok, válaszfalak, szerelvények eltávolítása",
-            "material_cost_range": f"{demo_mat_low:,} - {demo_mat_high:,} Ft",
-            "labor_cost_range": f"{demo_lab_low:,} - {demo_lab_high:,} Ft",
-            "data_source": dd_src,
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Bontás (Demolition)",
+                "description": "Régi burkolatok, válaszfalak, szerelvények eltávolítása",
+                "material_cost_range": f"{demo_mat_low:,} - {demo_mat_high:,} Ft",
+                "labor_cost_range": f"{demo_lab_low:,} - {demo_lab_high:,} Ft",
+                "data_source": dd_src,
+            }
+        )
         total_low += demo_mat_low + demo_lab_low
         total_high += demo_mat_high + demo_lab_high
         total_labor_low += demo_lab_low
@@ -1293,7 +1438,11 @@ async def handle_construction_planning(
 
         floor_reinforcement = False
         if building_era and building_era.isdigit() and int(building_era) < 1920:
-            if "acél" in floor_construction or "boltíves" in floor_construction or not floor_construction:
+            if (
+                "acél" in floor_construction
+                or "boltíves" in floor_construction
+                or not floor_construction
+            ):
                 floor_reinforcement = True
                 masonry_low = 402000  # Reinforced floor material cost
                 masonry_high = 402000
@@ -1303,7 +1452,11 @@ async def handle_construction_planning(
                     "Födém megerősítés szükséges a gerendák között "
                     "(tégla boltíves acél gerendás födém)!"
                 )
-        elif building_era and building_era.isdigit() and 1920 <= int(building_era) <= 1965:
+        elif (
+            building_era
+            and building_era.isdigit()
+            and 1920 <= int(building_era) <= 1965
+        ):
             if "betontálcás" in floor_construction or "beton" in floor_construction:
                 # No reinforcement needed — walls can start from the slab
                 pass
@@ -1311,17 +1464,19 @@ async def handle_construction_planning(
         masonry_desc = (
             "Új falak építése, födém erősítés (acél gerendák között), "
             "ajtónyílások kialakítása"
-            if floor_reinforcement else
-            "Új falak építése, ajtónyílások kialakítása, betontálcáról indítható"
+            if floor_reinforcement
+            else "Új falak építése, ajtónyílások kialakítása, betontálcáról indítható"
         )
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Kőműves (Masonry)",
-            "description": masonry_desc,
-            "material_cost_range": f"{masonry_low:,} - {masonry_high:,} Ft",
-            "labor_cost_range": f"{mason_labor_low:,} - {mason_labor_high:,} Ft",
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Kőműves (Masonry)",
+                "description": masonry_desc,
+                "material_cost_range": f"{masonry_low:,} - {masonry_high:,} Ft",
+                "labor_cost_range": f"{mason_labor_low:,} - {mason_labor_high:,} Ft",
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += masonry_low + mason_labor_low
         total_high += masonry_high + mason_labor_high
         total_labor_low += mason_labor_low
@@ -1337,14 +1492,16 @@ async def handle_construction_planning(
         dw_mat_total_high = int(dw_mat_high * area_sqm)
         dw_lab_total_low = int(dw_lab_low * area_sqm)
         dw_lab_total_high = int(dw_lab_high * area_sqm)
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Gipszkarton és álmennyezet (Drywall & Ceiling)",
-            "description": "Gipszkarton falazás, álmennyezet kialakítása, CD profil vázszerkezet",
-            "material_cost_range": f"{dw_mat_total_low:,} - {dw_mat_total_high:,} Ft",
-            "labor_cost_range": f"{dw_lab_total_low:,} - {dw_lab_total_high:,} Ft",
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Gipszkarton és álmennyezet (Drywall & Ceiling)",
+                "description": "Gipszkarton falazás, álmennyezet kialakítása, CD profil vázszerkezet",
+                "material_cost_range": f"{dw_mat_total_low:,} - {dw_mat_total_high:,} Ft",
+                "labor_cost_range": f"{dw_lab_total_low:,} - {dw_lab_total_high:,} Ft",
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += dw_mat_total_low + dw_lab_total_low
         total_high += dw_mat_total_high + dw_lab_total_high
         total_labor_low += dw_lab_total_low
@@ -1364,14 +1521,16 @@ async def handle_construction_planning(
         win_mat_high = win_per_unit_high * num_units
         win_lab_low = 25000 * num_units
         win_lab_high = 35000 * num_units
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Nyílászáró csere (Windows & Doors)",
-            "description": f"Új ablakok ({num_units} db) és beltéri ajtók cseréje, tokok beépítése",
-            "material_cost_range": f"{win_mat_low:,} - {win_mat_high:,} Ft",
-            "labor_cost_range": f"{win_lab_low:,} - {win_lab_high:,} Ft",
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Nyílászáró csere (Windows & Doors)",
+                "description": f"Új ablakok ({num_units} db) és beltéri ajtók cseréje, tokok beépítése",
+                "material_cost_range": f"{win_mat_low:,} - {win_mat_high:,} Ft",
+                "labor_cost_range": f"{win_lab_low:,} - {win_lab_high:,} Ft",
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += win_mat_low + win_lab_low
         total_high += win_mat_high + win_lab_high
         total_labor_low += win_lab_low
@@ -1424,14 +1583,16 @@ async def handle_construction_planning(
             desc_parts.append("fűtéscsövek/radiátorok")
         if scope.get("ac", False):
             desc_parts.append("klíma előkészítés")
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1,
-            "name": "Gépészet (Plumbing, Electrical, HVAC)",
-            "description": " és ".join(desc_parts) + " elhelyezése, szerelése",
-            "material_cost_range": f"{rough_mat_low:,} - {rough_mat_high:,} Ft",
-            "labor_cost_range": f"{rough_lab_low:,} - {rough_lab_high:,} Ft",
-            "data_source": rough_src,
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1,
+                "name": "Gépészet (Plumbing, Electrical, HVAC)",
+                "description": " és ".join(desc_parts) + " elhelyezése, szerelése",
+                "material_cost_range": f"{rough_mat_low:,} - {rough_mat_high:,} Ft",
+                "labor_cost_range": f"{rough_lab_low:,} - {rough_lab_high:,} Ft",
+                "data_source": rough_src,
+            }
+        )
         total_low += rough_mat_low + rough_lab_low
         total_high += rough_mat_high + rough_lab_high
         total_labor_low += rough_lab_low
@@ -1449,14 +1610,16 @@ async def handle_construction_planning(
             ins_lab_low = int(2000 * area_sqm)
             ins_lab_high = int(4000 * area_sqm)
             in_src = "hardcoded_2025"
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Szigetelés (Insulation)",
-            "description": "Hőszigetelés és/vagy hangszigetelés, párazáró fólia, EPS/ásványgyapot",
-            "material_cost_range": f"{ins_mat_low:,} - {ins_mat_high:,} Ft",
-            "labor_cost_range": f"{ins_lab_low:,} - {ins_lab_high:,} Ft",
-            "data_source": in_src,
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Szigetelés (Insulation)",
+                "description": "Hőszigetelés és/vagy hangszigetelés, párazáró fólia, EPS/ásványgyapot",
+                "material_cost_range": f"{ins_mat_low:,} - {ins_mat_high:,} Ft",
+                "labor_cost_range": f"{ins_lab_low:,} - {ins_lab_high:,} Ft",
+                "data_source": in_src,
+            }
+        )
         total_low += ins_mat_low + ins_lab_low
         total_high += ins_mat_high + ins_lab_high
         total_labor_low += ins_lab_low
@@ -1469,8 +1632,12 @@ async def handle_construction_planning(
         plaster_labor_high = 380000
         # Apply ceiling-height multiplier to plastering labor (vertical surface trade)
         if ceiling_height and ceiling_height > 2.75:
-            adj_low_pl, _ = apply_height_surcharge(ceiling_height, area_sqm, plaster_labor_low)
-            adj_high_pl, _ = apply_height_surcharge(ceiling_height, area_sqm, plaster_labor_high)
+            adj_low_pl, _ = apply_height_surcharge(
+                ceiling_height, area_sqm, plaster_labor_low
+            )
+            adj_high_pl, _ = apply_height_surcharge(
+                ceiling_height, area_sqm, plaster_labor_high
+            )
             plaster_labor_low = int(adj_low_pl)
             plaster_labor_high = int(adj_high_pl)
         if wall_condition.get("wallpaper", False):
@@ -1478,18 +1645,20 @@ async def handle_construction_planning(
             plaster_labor_low += 180000
             plaster_labor_high += 280000
             warnings.append("Fűrészporos tapéta miatt kaparás és Q3 vakolás szükséges!")
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1,
-            "name": "Vakolás és glettelés (Plastering)",
-            "description": (
-                "Tapéta kaparás, csiszolás, vakolás, glettelés"
-                if wall_condition.get("wallpaper", False)
-                else "Csiszolás, vakolás, glettelés"
-            ),
-            "material_cost_range": f"{plaster_material:,} - {plaster_material + 100000:,} Ft",
-            "labor_cost_range": f"{plaster_labor_low:,} - {plaster_labor_high:,} Ft",
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1,
+                "name": "Vakolás és glettelés (Plastering)",
+                "description": (
+                    "Tapéta kaparás, csiszolás, vakolás, glettelés"
+                    if wall_condition.get("wallpaper", False)
+                    else "Csiszolás, vakolás, glettelés"
+                ),
+                "material_cost_range": f"{plaster_material:,} - {plaster_material + 100000:,} Ft",
+                "labor_cost_range": f"{plaster_labor_low:,} - {plaster_labor_high:,} Ft",
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += plaster_material + plaster_labor_low
         total_high += (plaster_material + 100000) + plaster_labor_high
         total_labor_low += plaster_labor_low
@@ -1517,18 +1686,20 @@ async def handle_construction_planning(
             floor_labor_low += 50000
             floor_labor_high += 80000
             warnings.append("Épített zuhany miatt cementbázisú szigetelés szükséges!")
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1,
-            "name": "Burkolás (Flooring & Tiling)",
-            "description": (
-                "Csempe/járólap burkolás, cementbázisú vízszigetelés"
-                if has_shower
-                else "Csempe/járólap burkolás"
-            ),
-            "material_cost_range": f"{floor_material_low:,} - {floor_material_high_range:,} Ft",
-            "labor_cost_range": f"{floor_labor_low:,} - {floor_labor_high:,} Ft",
-            "data_source": fl_src,
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1,
+                "name": "Burkolás (Flooring & Tiling)",
+                "description": (
+                    "Csempe/járólap burkolás, cementbázisú vízszigetelés"
+                    if has_shower
+                    else "Csempe/járólap burkolás"
+                ),
+                "material_cost_range": f"{floor_material_low:,} - {floor_material_high_range:,} Ft",
+                "labor_cost_range": f"{floor_labor_low:,} - {floor_labor_high:,} Ft",
+                "data_source": fl_src,
+            }
+        )
         total_low += floor_material_low + floor_labor_low
         total_high += floor_material_high_range + floor_labor_high
         total_labor_low += floor_labor_low
@@ -1548,21 +1719,27 @@ async def handle_construction_planning(
             desc_6 += ", konyhabútor szerelés"
 
         # Apply ceiling-height multiplier to painting labor
-        adj_lab_low, _ = apply_height_surcharge(ceiling_height, area_sqm, paint_labor_low)
-        adj_lab_high, _ = apply_height_surcharge(ceiling_height, area_sqm, paint_labor_high)
+        adj_lab_low, _ = apply_height_surcharge(
+            ceiling_height, area_sqm, paint_labor_low
+        )
+        adj_lab_high, _ = apply_height_surcharge(
+            ceiling_height, area_sqm, paint_labor_high
+        )
         paint_labor_low = int(adj_lab_low)
         paint_labor_high = int(adj_lab_high)
         if ceiling_height and ceiling_height > 2.75:
             desc_6 += f" (belmagasság: {ceiling_height:.1f}m, labor szorzó: {ceiling_height_multiplier(ceiling_height):.1f}x)"
 
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1,
-            "name": "Festés és szerelés (Painting & Fixtures)",
-            "description": desc_6,
-            "material_cost_range": f"{paint_material:,} - {paint_material + 50000:,} Ft",
-            "labor_cost_range": f"{paint_labor_low:,} - {paint_labor_high:,} Ft",
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1,
+                "name": "Festés és szerelés (Painting & Fixtures)",
+                "description": desc_6,
+                "material_cost_range": f"{paint_material:,} - {paint_material + 50000:,} Ft",
+                "labor_cost_range": f"{paint_labor_low:,} - {paint_labor_high:,} Ft",
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += paint_material + paint_labor_low
         total_high += (paint_material + 50000) + paint_labor_high
         total_labor_low += paint_labor_low
@@ -1581,41 +1758,53 @@ async def handle_construction_planning(
 
     # Electrical top-up (gas disabled so only the electrical check applies)
     _, elec_adj_mid, _, _ = apply_infrastructure_minimums(
-        total_low, pre_min_mid, total_high, is_full_renovation, False,
+        total_low,
+        pre_min_mid,
+        total_high,
+        is_full_renovation,
+        False,
     )
     elec_delta = elec_adj_mid - pre_min_mid
 
     # Combined top-up with the real gas flag; gas portion = combined - electrical
     _, combined_adj_mid, _, infra_logs = apply_infrastructure_minimums(
-        total_low, pre_min_mid, total_high, is_full_renovation, gas_heating,
+        total_low,
+        pre_min_mid,
+        total_high,
+        is_full_renovation,
+        gas_heating,
     )
     gas_delta = (combined_adj_mid - pre_min_mid) - elec_delta
 
     if elec_delta:
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Elektromos szabványosítás (Electrical Standardization)",
-            "description": "Minden fázis után: elektromos hálózat szabványosítása, "
-                           "új elosztótábla, biztonsági földelés. Kötelező minimum.",
-            "material_cost_range": f"{elec_delta:,} - {elec_delta:,} Ft",
-            "labor_cost_range": "0 Ft (építési munkadíjban benne)",
-"is_infrastructure_minimum": True,
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Elektromos szabványosítás (Electrical Standardization)",
+                "description": "Minden fázis után: elektromos hálózat szabványosítása, "
+                "új elosztótábla, biztonsági földelés. Kötelező minimum.",
+                "material_cost_range": f"{elec_delta:,} - {elec_delta:,} Ft",
+                "labor_cost_range": "0 Ft (építési munkadíjban benne)",
+                "is_infrastructure_minimum": True,
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += elec_delta
         total_high += elec_delta
 
     if gas_delta:
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Gáz/Fűtés alapinfrastruktúra (Gas/Heating Baseline)",
-            "description": "Kéményvizsgálat, gázterv, kéménybélelés, "
-                            "fűtésrendszer tervezése. Kötelező minimum.",
-            "material_cost_range": f"{gas_delta:,} - {gas_delta:,} Ft",
-            "labor_cost_range": "0 Ft (építési munkadíjban benne)",
-            "is_infrastructure_minimum": True,
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Gáz/Fűtés alapinfrastruktúra (Gas/Heating Baseline)",
+                "description": "Kéményvizsgálat, gázterv, kéménybélelés, "
+                "fűtésrendszer tervezése. Kötelező minimum.",
+                "material_cost_range": f"{gas_delta:,} - {gas_delta:,} Ft",
+                "labor_cost_range": "0 Ft (építési munkadíjban benne)",
+                "is_infrastructure_minimum": True,
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += gas_delta
         total_high += gas_delta
 
@@ -1626,21 +1815,24 @@ async def handle_construction_planning(
     if gas_heating:
         chim_cost = chimney_technician_cost(
             floor_number,
-            target_date=target_date, price_index=price_index,
+            target_date=target_date,
+            price_index=price_index,
         )
         chim_cost_low = int(chim_cost * 0.85)
         chim_cost_high = int(chim_cost * 1.15)
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Kéménytechnikai szakember (Chimney Specialist)",
-            "description": (
-                f"Kéménytechnikai felülvizsgálat és karbantartás "
-                f"({floor_number or 1}. emelet). Egyedi gázfűtés miatt kötelező."
-            ),
-            "material_cost_range": f"{chim_cost_low:,} - {chim_cost_high:,} Ft",
-            "labor_cost_range": "0 Ft (anyagköltségben benne)",
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Kéménytechnikai szakember (Chimney Specialist)",
+                "description": (
+                    f"Kéménytechnikai felülvizsgálat és karbantartás "
+                    f"({floor_number or 1}. emelet). Egyedi gázfűtés miatt kötelező."
+                ),
+                "material_cost_range": f"{chim_cost_low:,} - {chim_cost_high:,} Ft",
+                "labor_cost_range": "0 Ft (anyagköltségben benne)",
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += chim_cost_low
         total_high += chim_cost_high
         warnings.append(
@@ -1673,15 +1865,17 @@ async def handle_construction_planning(
                 f"Lift hiánya miatt logisztikai pótlék: {elev_extra:,} Ft "
                 "(szakértői becslés, pontosítandó)."
             )
-        phases.append({
-            "step": max(p["step"] for p in phases) + 1 if phases else 1,
-            "name": "Logisztikai pótlék (Logistics Surcharge)",
-            "description": logistics_desc,
-            "material_cost_range": "0 Ft (anyagköltség a fő tételekben)",
-            "labor_cost_range": f"{logistics_surcharge_low:,} - {logistics_surcharge_high:,} Ft",
-            "is_infrastructure_minimum": True,
-            "data_source": "hardcoded_2025",
-        })
+        phases.append(
+            {
+                "step": max(p["step"] for p in phases) + 1 if phases else 1,
+                "name": "Logisztikai pótlék (Logistics Surcharge)",
+                "description": logistics_desc,
+                "material_cost_range": "0 Ft (anyagköltség a fő tételekben)",
+                "labor_cost_range": f"{logistics_surcharge_low:,} - {logistics_surcharge_high:,} Ft",
+                "is_infrastructure_minimum": True,
+                "data_source": "hardcoded_2025",
+            }
+        )
         total_low += logistics_surcharge_low
         total_high += logistics_surcharge_high
 
@@ -1691,18 +1885,20 @@ async def handle_construction_planning(
     if owner_result["mid_huf"]:
         total_low += owner_result["low_huf"]
         total_high += owner_result["high_huf"]
-        phases.append({
-            "id": "owner_purchased",
-            "name": "Tulajdonosi beszerzés (termékek)",
-            "description": "A megrendelő által vásárolt anyagok és termékek (csempe, laminált, "
-                           "ajtók, szaniter, konyhabútor, lámpák, háztartási gépek) a kiválasztott "
-                           "minőségi szinten.",
-            "material_cost_range": f"{owner_result['low_huf']:,} - {owner_result['high_huf']:,} Ft",
-            "labor_cost_range": "0 Ft (termékár, tulajdonosi beszerzés)",
-            "is_infrastructure_minimum": False,
-            "data_source": "product_catalog_doc04",
-            "items": owner_details,
-        })
+        phases.append(
+            {
+                "id": "owner_purchased",
+                "name": "Tulajdonosi beszerzés (termékek)",
+                "description": "A megrendelő által vásárolt anyagok és termékek (csempe, laminált, "
+                "ajtók, szaniter, konyhabútor, lámpák, háztartási gépek) a kiválasztott "
+                "minőségi szinten.",
+                "material_cost_range": f"{owner_result['low_huf']:,} - {owner_result['high_huf']:,} Ft",
+                "labor_cost_range": "0 Ft (termékár, tulajdonosi beszerzés)",
+                "is_infrastructure_minimum": False,
+                "data_source": "product_catalog_doc04",
+                "items": owner_details,
+            }
+        )
     warnings.extend(owner_warnings)
 
     total_mid = (total_low + total_high) // 2
@@ -1794,18 +1990,18 @@ async def handle_construction_planning(
             "a kiválasztott építési korszak és a kért munkák kombinációja "
             "több rejtett technológiai láncot aktivált. "
             "Ezek a láncok olyan kötelező munkafázisokat takarnak, "
-            "amelyek egymás nélkül nem végezhetők el szakszerűen."
-            .format(total_mid)
+            "amelyek egymás nélkül nem végezhetők el szakszerűen.".format(total_mid)
         )
 
     # Build dynamic confidence score from the data_source mix
     corpus_mid = sum(
-        c["estimate_huf"]["mid"] for c in categories.values()
-        if c.get("data_quality") in ("sufficient", "single_quote") and not c.get("fallback_used")
+        c["estimate_huf"]["mid"]
+        for c in categories.values()
+        if c.get("data_quality") in ("sufficient", "single_quote")
+        and not c.get("fallback_used")
     )
     fallback_mid = sum(
-        c["estimate_huf"]["mid"] for c in categories.values()
-        if c.get("fallback_used")
+        c["estimate_huf"]["mid"] for c in categories.values() if c.get("fallback_used")
     )
     hardcoded_mid = total_mid - corpus_mid - fallback_mid
     if hardcoded_mid < 0:
@@ -1889,5 +2085,7 @@ def resolve_handler(intent: str) -> Any:
     """Resolve a canonical intent name to its async handler function."""
     handler = HANDLER_MAP.get(intent)
     if handler is None:
-        raise ValueError(f"Unknown intent: '{intent}'. Available: {list(HANDLER_MAP.keys())}")
+        raise ValueError(
+            f"Unknown intent: '{intent}'. Available: {list(HANDLER_MAP.keys())}"
+        )
     return handler

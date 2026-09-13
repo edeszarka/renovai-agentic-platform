@@ -1,8 +1,8 @@
 """Health check server for Cloud Run / Kubernetes liveness probes."""
 
-import os
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 class HealthHandler(BaseHTTPRequestHandler):

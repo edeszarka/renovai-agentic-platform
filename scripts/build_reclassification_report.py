@@ -33,7 +33,7 @@ SZIGETELES_REEXAM = Path("data/reports/szigeteles_reexam.json")
 def sqlite_path_from_url(database_url: str) -> Path:
     for prefix in ("sqlite+aiosqlite:///", "sqlite:///"):
         if database_url.startswith(prefix):
-            return Path(database_url[len(prefix):])
+            return Path(database_url[len(prefix) :])
     raise ValueError(f"Expected a file-backed SQLite URL, got {database_url!r}")
 
 
@@ -62,7 +62,9 @@ def _load_json(path: Path) -> Optional[dict]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def build_report(db_path: Path, backfill: Optional[dict], reexam: Optional[dict]) -> str:
+def build_report(
+    db_path: Path, backfill: Optional[dict], reexam: Optional[dict]
+) -> str:
     before, after = load_histograms(db_path)
     total = sum(before.values())
 
@@ -82,7 +84,9 @@ def build_report(db_path: Path, backfill: Optional[dict], reexam: Optional[dict]
     lines.append("")
     if backfill:
         tiers = backfill.get("tier_counts", {})
-        lines.append(f"Total line items backfilled: **{backfill.get('total_items', total)}**")
+        lines.append(
+            f"Total line items backfilled: **{backfill.get('total_items', total)}**"
+        )
         lines.append("")
         lines.append("| Tier | Items |")
         lines.append("|------|------:|")
@@ -101,7 +105,9 @@ def build_report(db_path: Path, backfill: Optional[dict], reexam: Optional[dict]
             lines.append("")
             lines.append(f"Unresolved (left NULL): {len(backfill['unresolved'])}")
     else:
-        lines.append("_backfill stats not found; run `scripts/backfill_category_v2.py` first._")
+        lines.append(
+            "_backfill stats not found; run `scripts/backfill_category_v2.py` first._"
+        )
     lines.append("")
 
     # --- Task B ---
@@ -116,7 +122,9 @@ def build_report(db_path: Path, backfill: Optional[dict], reexam: Optional[dict]
         for key in ("szigeteles", "futes_rendszer", "furdo", "needs_human_review"):
             lines.append(f"| {key} | {outcomes.get(key, 0)} |")
         lines.append("")
-        lines.append(f"Provider tiers used for the re-examination: `{reexam.get('tier_counts', {})}`")
+        lines.append(
+            f"Provider tiers used for the re-examination: `{reexam.get('tier_counts', {})}`"
+        )
         lines.append("")
         review = reexam.get("needs_human_review", [])
         lines.append(f"### Flagged `needs_human_review` ({len(review)})")
@@ -139,7 +147,9 @@ def build_report(db_path: Path, backfill: Optional[dict], reexam: Optional[dict]
                 lines.append(f"- `{name}`")
             lines.append("")
     else:
-        lines.append("_re-examination summary not found; run `scripts/reexamine_szigeteles.py` first._")
+        lines.append(
+            "_re-examination summary not found; run `scripts/reexamine_szigeteles.py` first._"
+        )
     lines.append("")
 
     # --- Histogram ---
@@ -151,14 +161,18 @@ def build_report(db_path: Path, backfill: Optional[dict], reexam: Optional[dict]
         "`needs_human_review` is stored as SQL NULL."
     )
     lines.append("")
-    all_keys = sorted(set(before) | set(after), key=lambda k: -max(before.get(k, 0), after.get(k, 0)))
+    all_keys = sorted(
+        set(before) | set(after), key=lambda k: -max(before.get(k, 0), after.get(k, 0))
+    )
     lines.append("| category | before | after | Δ |")
     lines.append("|----------|-------:|------:|---:|")
     for key in all_keys:
         b = before.get(key, 0)
         a = after.get(key, 0)
         lines.append(f"| {key} | {b} | {a} | {a - b:+d} |")
-    lines.append(f"| **total** | **{sum(before.values())}** | **{sum(after.values())}** | |")
+    lines.append(
+        f"| **total** | **{sum(before.values())}** | **{sum(after.values())}** | |"
+    )
     lines.append("")
     eb_before = before.get("egyeb", 0)
     eb_after = after.get("egyeb", 0)
@@ -192,7 +206,9 @@ def build_report(db_path: Path, backfill: Optional[dict], reexam: Optional[dict]
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Build the reclassification report (Task C)")
+    parser = argparse.ArgumentParser(
+        description="Build the reclassification report (Task C)"
+    )
     parser.add_argument(
         "--database-url",
         default=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"),

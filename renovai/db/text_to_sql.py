@@ -1,8 +1,9 @@
-import re
 import logging
-from openai import OpenAI
+import re
+from typing import Any, Dict, List
+
 import google.generativeai as genai
-from typing import List, Dict, Any
+from openai import OpenAI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,14 +72,10 @@ class TextToSQLEngine:
 
         if self.provider in ("groq", "deepseek"):
             api_key = (
-                cfg.groq_api_key
-                if self.provider == "groq"
-                else cfg.deepseek_api_key
+                cfg.groq_api_key if self.provider == "groq" else cfg.deepseek_api_key
             )
             base_url = (
-                cfg.groq_base_url
-                if self.provider == "groq"
-                else cfg.deepseek_base_url
+                cfg.groq_base_url if self.provider == "groq" else cfg.deepseek_base_url
             )
             self.model = (
                 cfg.groq_sql_model
@@ -97,10 +94,27 @@ class TextToSQLEngine:
 
     def _detect_language(self, text: str) -> str:
         HU_MARKERS = [
-            "á", "é", "í", "ó", "ö", "ő", "ú", "ü", "ű",
-            "mennyi", "melyik", "hány", "kerület", "felújítás",
-            "átlag", "összesen", "legdrágább", "legolcsóbb",
-            "milyen", "mikor", "hogyan",
+            "á",
+            "é",
+            "í",
+            "ó",
+            "ö",
+            "ő",
+            "ú",
+            "ü",
+            "ű",
+            "mennyi",
+            "melyik",
+            "hány",
+            "kerület",
+            "felújítás",
+            "átlag",
+            "összesen",
+            "legdrágább",
+            "legolcsóbb",
+            "milyen",
+            "mikor",
+            "hogyan",
         ]
         text_lower = text.lower()
         hu_score = sum(1 for marker in HU_MARKERS if marker in text_lower)
@@ -138,7 +152,9 @@ class TextToSQLEngine:
         sql = re.sub(r"\s*```$", "", sql)
         return sql.strip()
 
-    async def execute_query(self, sql: str, session: AsyncSession) -> List[Dict[str, Any]]:
+    async def execute_query(
+        self, sql: str, session: AsyncSession
+    ) -> List[Dict[str, Any]]:
         if not sql.strip().upper().startswith("SELECT"):
             raise ValueError("Only SELECT statements are allowed for safety.")
         res = await session.execute(text(sql))

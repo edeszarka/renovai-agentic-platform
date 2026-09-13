@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from .models import LineItemORM, Quote, WorkCategory
+from .models import Quote, WorkCategory
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +21,7 @@ async def compute_per_sqm_stats(session_maker: async_sessionmaker) -> dict:
         return _stats_cache["data"]
 
     async with session_maker() as session:
-        stmt = (
-            select(Quote)
-            .options(selectinload(Quote.line_items))
-        )
+        stmt = select(Quote).options(selectinload(Quote.line_items))
         res = await session.execute(stmt)
         quotes = list(res.scalars().all())
 

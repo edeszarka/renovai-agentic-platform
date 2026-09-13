@@ -41,6 +41,7 @@ def _no_sleep(_seconds: float) -> None:
 # Error classification
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "exc,expected",
     [
@@ -62,12 +63,17 @@ def test_classify_error(exc, expected):
 # Success
 # ---------------------------------------------------------------------------
 
+
 def test_success_returns_text_and_provenance():
     provider = Provider(
         "deepseek",
-        lambda prompt, response_json: ProviderResponse(text='{"ok": true}', model="deepseek-chat"),
+        lambda prompt, response_json: ProviderResponse(
+            text='{"ok": true}', model="deepseek-chat"
+        ),
     )
-    result = call_llm("prompt", response_json=True, providers=[provider], sleep=_no_sleep)
+    result = call_llm(
+        "prompt", response_json=True, providers=[provider], sleep=_no_sleep
+    )
     assert isinstance(result, LLMResult)
     assert result.text == '{"ok": true}'
     assert result.provider == "deepseek"
@@ -77,6 +83,7 @@ def test_success_returns_text_and_provenance():
 # ---------------------------------------------------------------------------
 # Transient: retry once then succeed
 # ---------------------------------------------------------------------------
+
 
 def test_transient_error_retries_once_then_succeeds():
     calls = {"n": 0}
@@ -103,6 +110,7 @@ def test_transient_error_retries_once_then_succeeds():
 # Quota: no retry, fail fast
 # ---------------------------------------------------------------------------
 
+
 def test_quota_error_is_not_retried_and_fails_fast():
     calls = {"n": 0}
 
@@ -125,6 +133,7 @@ def test_quota_error_is_not_retried_and_fails_fast():
 # ---------------------------------------------------------------------------
 # Quota: fail over to secondary once
 # ---------------------------------------------------------------------------
+
 
 def test_quota_error_fails_over_to_secondary_once():
     primary_calls = {"n": 0}
@@ -154,6 +163,7 @@ def test_quota_error_fails_over_to_secondary_once():
 # Transient exhausted: fail over after retries
 # ---------------------------------------------------------------------------
 
+
 def test_transient_exhausted_then_fails_over():
     primary_calls = {"n": 0}
 
@@ -178,6 +188,7 @@ def test_transient_exhausted_then_fails_over():
 # No providers
 # ---------------------------------------------------------------------------
 
+
 def test_no_providers_raises_actionable_error():
     with pytest.raises(LLMError) as excinfo:
         call_llm("prompt", providers=[], sleep=_no_sleep)
@@ -189,6 +200,7 @@ def test_no_providers_raises_actionable_error():
 # ---------------------------------------------------------------------------
 # Provider resolution priority
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_providers_prefers_deepseek(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")

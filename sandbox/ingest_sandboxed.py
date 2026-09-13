@@ -31,11 +31,11 @@ Usage:
     python -m sandbox.ingest_sandboxed path/to/contractor_quote.xlsx
 """
 
-import os
-import sys
 import json
-import tempfile
+import os
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 from renovai.ingestion.models import RenovationQuote
@@ -104,13 +104,14 @@ def merge_into_db(quote: RenovationQuote, database_url: str = None) -> dict:
     """Merge a validated quote into the production database."""
     import asyncio
 
-    from renovai.db.session import get_engine, get_session_maker, init_db
-    from renovai.db.models import Base
     from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from renovai.db.session import get_engine, get_session_maker
 
     async def _merge():
-        url = database_url or os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
+        url = database_url or os.getenv(
+            "DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"
+        )
         engine = get_engine(url)
         session_maker = get_session_maker(engine)
 
@@ -121,7 +122,11 @@ def merge_into_db(quote: RenovationQuote, database_url: str = None) -> dict:
 
             # Build ORM objects from the parsed quote
             from datetime import date
-            from renovai.db.models import Quote, LineItemORM, WorkCategory, NotIncluded, BuyerPurchase, GeneralNote, SEED_WORK_CATEGORIES
+
+            from renovai.db.models import (
+                LineItemORM,
+                Quote,
+            )
 
             q = Quote(
                 file_name=quote.metadata.file_name,
@@ -140,10 +145,18 @@ def merge_into_db(quote: RenovationQuote, database_url: str = None) -> dict:
                 has_slag_complication=quote.metadata.has_slag_complication,
                 labor_vat_included=quote.metadata.labor_vat_included,
                 quote_style=quote.quote_style,
-                materials_brands=", ".join(quote.metadata.materials_brands) if quote.metadata.materials_brands else None,
-                general_notes_raw="\n".join(quote.general_notes) if quote.general_notes else None,
-                not_included_raw="\n".join(quote.not_included) if quote.not_included else None,
-                buyer_purchases_raw="\n".join(quote.buyer_purchases) if quote.buyer_purchases else None,
+                materials_brands=", ".join(quote.metadata.materials_brands)
+                if quote.metadata.materials_brands
+                else None,
+                general_notes_raw="\n".join(quote.general_notes)
+                if quote.general_notes
+                else None,
+                not_included_raw="\n".join(quote.not_included)
+                if quote.not_included
+                else None,
+                buyer_purchases_raw="\n".join(quote.buyer_purchases)
+                if quote.buyer_purchases
+                else None,
             )
             session.add(q)
             await session.flush()

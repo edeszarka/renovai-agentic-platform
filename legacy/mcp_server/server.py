@@ -18,28 +18,29 @@ Threat model / data-limitation note:
     SQL alongside the results so callers can audit what was run.
 """
 
-import os
 import logging
+import os
 from datetime import date
 from pathlib import Path
 from typing import Optional
-from contextlib import asynccontextmanager
 
-from mcp.server import FastMCP
 from dotenv import load_dotenv
+from mcp.server import FastMCP
 
-from renovai.predictor.feature_extractor import ApartmentInput, apartment_input_to_features
-from renovai.predictor.price_model import predict, find_similar_quotes
-from renovai.advisor.pre_purchase import generate_report, ApartmentProfile
-from renovai.advisor.report_renderer import render_report_md
-from renovai.rag.vector_store import VectorStoreConfig, RenovAIVectorStore
+from renovai.advisor.pre_purchase import ApartmentProfile, generate_report
+from renovai.db.session import get_engine, get_session_maker
+from renovai.db.text_to_sql import TextToSQLEngine
+from renovai.ingestion.inflation_calc import load_price_index
+from renovai.predictor.feature_extractor import (
+    ApartmentInput,
+    apartment_input_to_features,
+)
+from renovai.predictor.price_model import find_similar_quotes, predict
 from renovai.rag.embedder import EmbedderConfig
-from renovai.rag.retriever import RetrievalConfig
 from renovai.rag.gemini_client import GeminiConfig
 from renovai.rag.pipeline import RAGPipeline
-from renovai.ingestion.inflation_calc import load_price_index
-from renovai.db.text_to_sql import TextToSQLEngine
-from renovai.db.session import get_engine, get_session_maker, init_db
+from renovai.rag.retriever import RetrievalConfig
+from renovai.rag.vector_store import RenovAIVectorStore, VectorStoreConfig
 
 load_dotenv()
 logger = logging.getLogger("renovai-mcp")
@@ -57,7 +58,12 @@ SCOPE_MAP = {
     "furdo": {},
     "futes_rendszer": {"needs_plumbing": True},
     "szigeteles": {},
-    "teljes": {"needs_plumbing": True, "needs_electrical": True, "needs_flooring": True, "needs_full_demolition": True},
+    "teljes": {
+        "needs_plumbing": True,
+        "needs_electrical": True,
+        "needs_flooring": True,
+        "needs_full_demolition": True,
+    },
 }
 
 
@@ -81,8 +87,12 @@ class RenovAIState:
         models_dir = os.getenv("MODELS_DIR", "data/models")
         quotes_json_dir = os.getenv("QUOTES_JSON_DIR", "data/processed/quotes_json")
         database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
-        inflation_materials_csv = os.getenv("INFLATION_MATERIALS_CSV", "data/raw/inflation/materials_cpi.csv")
-        inflation_labor_csv = os.getenv("INFLATION_LABOR_CSV", "data/raw/inflation/labor_cpi.csv")
+        inflation_materials_csv = os.getenv(
+            "INFLATION_MATERIALS_CSV", "data/raw/inflation/materials_cpi.csv"
+        )
+        inflation_labor_csv = os.getenv(
+            "INFLATION_LABOR_CSV", "data/raw/inflation/labor_cpi.csv"
+        )
 
         errors = []
 
@@ -111,7 +121,10 @@ class RenovAIState:
             else:
                 self.rag_pipeline = None
 
-            if Path(inflation_materials_csv).exists() and Path(inflation_labor_csv).exists():
+            if (
+                Path(inflation_materials_csv).exists()
+                and Path(inflation_labor_csv).exists()
+            ):
                 self.price_index = load_price_index(
                     Path(inflation_materials_csv), Path(inflation_labor_csv)
                 )
@@ -135,7 +148,9 @@ class RenovAIState:
         self._initialized = True
 
 
-def _build_apartment_input(district: int, area_sqm: float, num_rooms: int, scope: list[str]) -> ApartmentInput:
+def _build_apartment_input(
+    district: int, area_sqm: float, num_rooms: int, scope: list[str]
+) -> ApartmentInput:
     needs_plumbing = False
     needs_electrical = False
     needs_flooring = False
@@ -368,10 +383,10 @@ async def query_renovation_market(question_hu: str) -> dict:
 
 
 # SSE/HTTP app for Cloud Run deployments
-from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
-
 # Disable MCP's DNS rebinding protection so Cloud Run host headers pass through
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
+from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
+
 mcp.settings.transport_security = TransportSecuritySettings(
     enable_dns_rebinding_protection=False,
 )
@@ -393,8 +408,11 @@ if __name__ == "__main__":
 
     if is_cloud_run:
         import uvicorn
+
         logging.basicConfig(level=logging.INFO)
-        logger.info("Starting RenovAI MCP server on SSE transport (Cloud Run) — port %d", port)
+        logger.info(
+            "Starting RenovAI MCP server on SSE transport (Cloud Run) — port %d", port
+        )
         uvicorn.run(sse_app, host="0.0.0.0", port=port, log_level="info")
     else:
         mcp.run(transport="stdio")

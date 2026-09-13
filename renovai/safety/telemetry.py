@@ -1,7 +1,6 @@
-import os
+import logging
 import re
 import uuid
-import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -11,11 +10,14 @@ logger = logging.getLogger(__name__)
 
 # Regex patterns for PII sanitization in trace data.
 _SANITIZE_PATTERNS: list[tuple[str, str]] = [
-    (r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', 'REDACTED_IP'),
-    (r'\b[\w\.-]+@[\w\.-]+\.\w+\b', 'REDACTED_EMAIL'),
-    (r'\b\d{6,12}\b', 'REDACTED_ID'),
-    (r'\b(?:\+36|06)[-\s]?\d{1,2}[-\s]?\d{3,4}[-\s]?\d{3,4}\b', 'REDACTED_PHONE'),
-    (r'\b[1-9]\d{3}\s(?:[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+)*)\b', 'REDACTED_ADDRESS'),
+    (r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "REDACTED_IP"),
+    (r"\b[\w\.-]+@[\w\.-]+\.\w+\b", "REDACTED_EMAIL"),
+    (r"\b\d{6,12}\b", "REDACTED_ID"),
+    (r"\b(?:\+36|06)[-\s]?\d{1,2}[-\s]?\d{3,4}[-\s]?\d{3,4}\b", "REDACTED_PHONE"),
+    (
+        r"\b[1-9]\d{3}\s(?:[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+(?:\s[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+)*)\b",
+        "REDACTED_ADDRESS",
+    ),
 ]
 
 
@@ -39,15 +41,16 @@ class Span:
     - agent.think for reasoning steps
     - agent.tool for tool execution latencies
     """
+
     span_id: str
     trace_id: str
     parent_span_id: str | None
     name: str
-    span_type: str                     # "agent.think" | "agent.tool"
+    span_type: str  # "agent.think" | "agent.tool"
     start_time: str
     end_time: str | None = None
     attributes: dict[str, Any] = field(default_factory=dict)
-    status: str = "ok"                 # "ok" | "error"
+    status: str = "ok"  # "ok" | "error"
     error_message: str | None = None
 
     @property

@@ -3,7 +3,7 @@ and logistics costs.
 
 The old code unconditionally added a flat 300k electrical / 800k gas phase and
 an inline 15%-of-labor logistics line. The fix routes those through the shared
-`structural_cost` functions (`apply_infrastructure_minimums` / 
+`structural_cost` functions (`apply_infrastructure_minimums` /
 `compute_logistics_surcharge`) so the same minimums and surcharge rate apply
 everywhere.
 
@@ -13,13 +13,13 @@ These tests exercise the handler end-to-end with fake policy/registry services
 
 import asyncio
 
-from orchestrator.policy_service import PolicyCheckResult
 from orchestrator.handlers import handle_construction_planning
+from orchestrator.policy_service import PolicyCheckResult
 from renovai.predictor.structural_cost import (
-    apply_infrastructure_minimums,
-    compute_logistics_surcharge,
     ELECTRICAL_STANDARDIZATION_MINIMUM,
     GAS_HEATING_INFRA_MINIMUM,
+    apply_infrastructure_minimums,
+    compute_logistics_surcharge,
 )
 
 
@@ -75,7 +75,10 @@ def _base_totals(phases):
         if p.get("is_infrastructure_minimum"):
             continue
         ml = mh = ll = lh = 0
-        if " - " in p["material_cost_range"] and "anyagköltség" not in p["material_cost_range"]:
+        if (
+            " - " in p["material_cost_range"]
+            and "anyagköltség" not in p["material_cost_range"]
+        ):
             ml, mh = _parse_range(p["material_cost_range"])
         if " - " in p["labor_cost_range"] and "benne" not in p["labor_cost_range"]:
             ll, lh = _parse_range(p["labor_cost_range"])
@@ -114,7 +117,9 @@ class TestInfrastructureMinimumsThroughHandler:
 
         base_low, base_high = _base_totals(phases)
         base_mid = (base_low + base_high) // 2
-        adjusted = apply_infrastructure_minimums(base_low, base_mid, base_high, True, False)
+        adjusted = apply_infrastructure_minimums(
+            base_low, base_mid, base_high, True, False
+        )
         elec_phases = _infra_phase_names(phases, "Elektromos")
         gas_phases = _infra_phase_names(phases, "Gáz")
 
@@ -134,7 +139,9 @@ class TestInfrastructureMinimumsThroughHandler:
 
         base_low, base_high = _base_totals(phases)
         base_mid = (base_low + base_high) // 2
-        adjusted = apply_infrastructure_minimums(base_low, base_mid, base_high, True, True)
+        adjusted = apply_infrastructure_minimums(
+            base_low, base_mid, base_high, True, True
+        )
 
         if adjusted[:3] != (base_low, base_mid, base_high):
             # Minimums kicked in — check the infra phases exist
@@ -153,9 +160,13 @@ class TestInfrastructureMinimumsThroughHandler:
             computed_low = computed_high = 0
             for p in phases:
                 ml = mh = ll = lh = 0
-                if " - " in p.get("material_cost_range", "") and "anyagköltség" not in p.get("material_cost_range", ""):
+                if " - " in p.get(
+                    "material_cost_range", ""
+                ) and "anyagköltség" not in p.get("material_cost_range", ""):
                     ml, mh = _parse_range(p["material_cost_range"])
-                if " - " in p.get("labor_cost_range", "") and "benne" not in p.get("labor_cost_range", ""):
+                if " - " in p.get("labor_cost_range", "") and "benne" not in p.get(
+                    "labor_cost_range", ""
+                ):
                     ll, lh = _parse_range(p["labor_cost_range"])
                 computed_low += ml + ll
                 computed_high += mh + lh
@@ -213,7 +224,9 @@ class TestBelowMinimumTopUpMatchesSharedFunction:
 
         _, elec_mid, _, _ = apply_infrastructure_minimums(low, mid, high, True, False)
         elec_delta = elec_mid - mid
-        _, combined_mid, _, _ = apply_infrastructure_minimums(low, mid, high, True, True)
+        _, combined_mid, _, _ = apply_infrastructure_minimums(
+            low, mid, high, True, True
+        )
         gas_delta = (combined_mid - mid) - elec_delta
 
         combined = apply_infrastructure_minimums(low, mid, high, True, True)
@@ -230,7 +243,9 @@ class TestBelowMinimumTopUpMatchesSharedFunction:
 
         _, elec_mid, _, _ = apply_infrastructure_minimums(low, mid, high, True, False)
         elec_delta = elec_mid - mid
-        _, combined_mid, _, _ = apply_infrastructure_minimums(low, mid, high, True, True)
+        _, combined_mid, _, _ = apply_infrastructure_minimums(
+            low, mid, high, True, True
+        )
         gas_delta = (combined_mid - mid) - elec_delta
 
         elec_share = int(mid * 0.12)

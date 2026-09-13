@@ -27,6 +27,7 @@ batched and resumable via a JSON checkpoint.
 Usage:
     python -m scripts.backfill_building_taxonomy [--dry-run] [--batch-size 10]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -253,6 +254,7 @@ def read_body(md_path: Path) -> str:
 
 # --- DB application -----------------------------------------------------------
 
+
 async def apply_backfill(
     rows: list[dict],
     engine,
@@ -288,6 +290,7 @@ async def apply_backfill(
 
 # --- Orchestration ------------------------------------------------------------
 
+
 def load_checkpoint(path: Path) -> dict[str, dict]:
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
@@ -300,7 +303,9 @@ def save_checkpoint(path: Path, checkpoint: dict[str, dict]) -> None:
         json.dump(checkpoint, f, ensure_ascii=False, indent=2)
 
 
-async def run(corpus_dir: Path, checkpoint_path: Path, batch_size: int, dry_run: bool) -> None:
+async def run(
+    corpus_dir: Path, checkpoint_path: Path, batch_size: int, dry_run: bool
+) -> None:
     md_files = sorted(corpus_dir.glob("*.md"))
     logger.info("Corpus: %d markdown files in %s", len(md_files), corpus_dir)
     if not md_files:
@@ -312,7 +317,7 @@ async def run(corpus_dir: Path, checkpoint_path: Path, batch_size: int, dry_run:
     unresolved_log: list[str] = []
 
     for i in range(0, len(md_files), batch_size):
-        batch = md_files[i:i + batch_size]
+        batch = md_files[i : i + batch_size]
         for md_path in batch:
             stem = md_path.stem
             if stem in checkpoint:
@@ -323,7 +328,9 @@ async def run(corpus_dir: Path, checkpoint_path: Path, batch_size: int, dry_run:
             tax = extract_taxonomy(stem, source, body)
             row = {
                 "file_name": f"{stem}.xlsx",
-                "building_type": tax["building_type"].value if tax["building_type"] else None,
+                "building_type": tax["building_type"].value
+                if tax["building_type"]
+                else None,
                 "building_era": tax["building_era"],
                 "floor_number": tax["floor_number"],
                 "elevator_type": tax["elevator_type"],
@@ -342,7 +349,9 @@ async def run(corpus_dir: Path, checkpoint_path: Path, batch_size: int, dry_run:
         save_checkpoint(checkpoint_path, checkpoint)
 
     # Apply all extracted rows to the DB in one pass.
-    engine = get_engine(os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"))
+    engine = get_engine(
+        os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
+    )
     all_rows = [
         {
             "file_name": r["file_name"],

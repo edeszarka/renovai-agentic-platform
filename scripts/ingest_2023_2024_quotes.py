@@ -2,34 +2,56 @@
 Ingest new 2023/2024 renovation quotes: parse, inflation-adjust, validate, merge.
 Uses existing parser, inflation calc, and DB repository — no reimplementation.
 """
+
 import asyncio
 import json
 import logging
-import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from rich.console import Console
-from rich.table import Table
 from rich.logging import RichHandler
+from rich.table import Table
 
-from renovai.ingestion.quote_parser import parse_quote
-from renovai.ingestion.inflation_calc import load_price_index, adjust_quote
-from renovai.ingestion.models import RenovationQuote, QuoteMetadata
 from renovai.db.session import get_engine, get_session_maker, init_db
+from renovai.ingestion.inflation_calc import adjust_quote, load_price_index
+from renovai.ingestion.models import QuoteMetadata, RenovationQuote
+from renovai.ingestion.quote_parser import parse_quote
 
 # Known non-Budapest settlements that may appear in filenames.
 NON_BUDAPEST_SUBURBS: set[str] = {
-    "Budakalász", "Budaörs", "Üröm", "Pilisvörösvár", "Szentendre",
-    "Dunakeszi", "Gödöllő", "Törökbálint", "Diósd", "Érd", "Fót",
-    "Kistarcsa", "Csömör", "Nagykovácsi", "Páty", "Biatorbágy",
-    "Halásztelek", "Szigetszentmiklós", "Dunaharaszti", "Vecsés",
-    "Alsónémedi", "Solymár",
+    "Budakalász",
+    "Budaörs",
+    "Üröm",
+    "Pilisvörösvár",
+    "Szentendre",
+    "Dunakeszi",
+    "Gödöllő",
+    "Törökbálint",
+    "Diósd",
+    "Érd",
+    "Fót",
+    "Kistarcsa",
+    "Csömör",
+    "Nagykovácsi",
+    "Páty",
+    "Biatorbágy",
+    "Halásztelek",
+    "Szigetszentmiklós",
+    "Dunaharaszti",
+    "Vecsés",
+    "Alsónémedi",
+    "Solymár",
 }
-from renovai.db.repository import QuoteRepository, CPIRepository
+from renovai.db.repository import CPIRepository, QuoteRepository
 
-logging.basicConfig(level=logging.INFO, format="%(message)s", datefmt="[%X]", handlers=[RichHandler(rich_tracebacks=True)])
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(rich_tracebacks=True)],
+)
 logger = logging.getLogger("ingest")
 console = Console()
 
@@ -48,7 +70,9 @@ YEAR_FOLDERS = ["2023", "2024"]
 async def get_existing_db_filenames(session_maker) -> set[str]:
     """Return set of file_names already in the database."""
     from sqlalchemy import select
+
     from renovai.db.models import Quote
+
     async with session_maker() as session:
         res = await session.execute(select(Quote.file_name))
         return {row[0] for row in res.fetchall()}
@@ -85,7 +109,9 @@ def fallback_district(metadata: QuoteMetadata, filename: str) -> None:
     for suburb in NON_BUDAPEST_SUBURBS:
         if suburb.lower() in stem.lower():
             metadata.district = 0
-            logger.info("Non-Budapest suburb '%s' → district=0 for %s", suburb, filename)
+            logger.info(
+                "Non-Budapest suburb '%s' → district=0 for %s", suburb, filename
+            )
             return
     # Fallback: mark as unknown Budapest district.
     metadata.district = 1
@@ -115,6 +141,7 @@ def print_inflation_table(rows: list[dict[str, Any]]) -> None:
 async def async_main() -> None:
     # ── Setup DB ──────────────────────────────────────────────
     from os import getenv
+
     db_url = getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
     engine = get_engine(db_url)
     await init_db(engine)
@@ -127,13 +154,19 @@ async def async_main() -> None:
     price_index = load_price_index(MATERIALS_CPI, LABOR_CPI)
     assert price_index.materials, "Materials CPI data is empty!"
     assert price_index.labor, "Labor CPI data is empty!"
-    console.print(f"[dim]CPI data: {len(price_index.materials)} materials quarters, {len(price_index.labor)} labor quarters[/dim]")
+    console.print(
+        f"[dim]CPI data: {len(price_index.materials)} materials quarters, {len(price_index.labor)} labor quarters[/dim]"
+    )
 
     # ── Save CPI records to DB ────────────────────────────────
     cpi_repo = CPIRepository()
     async with session_maker() as session:
-        await cpi_repo.upsert_cpi_records(session, price_index.materials, component_override="materials")
-        await cpi_repo.upsert_cpi_records(session, price_index.labor, component_override="labor")
+        await cpi_repo.upsert_cpi_records(
+            session, price_index.materials, component_override="materials"
+        )
+        await cpi_repo.upsert_cpi_records(
+            session, price_index.labor, component_override="labor"
+        )
         await session.commit()
     console.print("[dim]CPI records saved to DB[/dim]")
 
@@ -146,11 +179,15 @@ async def async_main() -> None:
         console.print("[red]No .xlsx files found in 2023/2024 folders![/red]")
         return
 
-    console.print(f"\n[bold yellow]Found {len(all_files)} raw XLSX files from 2023/2024[/bold yellow]")
+    console.print(
+        f"\n[bold yellow]Found {len(all_files)} raw XLSX files from 2023/2024[/bold yellow]"
+    )
 
     # ── Parse + Adjust ────────────────────────────────────────
     quote_repo = QuoteRepository()
-    valid_quotes: list[tuple[RenovationQuote, int, float, str]] = []  # (quote, adjusted_total, delta_pct, cpi_note)
+    valid_quotes: list[
+        tuple[RenovationQuote, int, float, str]
+    ] = []  # (quote, adjusted_total, delta_pct, cpi_note)
     failed_quotes: list[dict] = []
     inflation_rows: list[dict[str, Any]] = []
     all_errors: list[tuple[str, list[str]]] = []
@@ -167,7 +204,9 @@ async def async_main() -> None:
             folder_year = int(file.parent.name)
 
             # Inflation adjust using quote_date from parse_quote (Jan 1 of folder year)
-            adj = adjust_quote(quote, price_index, TARGET_DATE)  # from=quote_date, to=2026
+            adj = adjust_quote(
+                quote, price_index, TARGET_DATE
+            )  # from=quote_date, to=2026
             adj_total = adj.grand_total_adjusted
             delta = adj.inflation_delta_pct
 
@@ -180,7 +219,9 @@ async def async_main() -> None:
             errors = validate_quote(quote, file)
             if errors:
                 all_errors.append((file.name, errors))
-                failed_quotes.append({"file": file.name, "errors": errors, "raw_total": raw_total})
+                failed_quotes.append(
+                    {"file": file.name, "errors": errors, "raw_total": raw_total}
+                )
             else:
                 valid_quotes.append((quote, adj_total, delta, cpi_note))
 
@@ -194,14 +235,16 @@ async def async_main() -> None:
                 f.write(adj.model_dump_json(indent=2))
 
             # ── Record for inflation table ──
-            inflation_rows.append({
-                "file": file.name,
-                "year": folder_year,
-                "raw": raw_total,
-                "adjusted": adj_total,
-                "delta_pct": delta,
-                "cpi_note": cpi_note,
-            })
+            inflation_rows.append(
+                {
+                    "file": file.name,
+                    "year": folder_year,
+                    "raw": raw_total,
+                    "adjusted": adj_total,
+                    "delta_pct": delta,
+                    "cpi_note": cpi_note,
+                }
+            )
 
         except Exception as e:
             logger.error("Failed on %s: %s", file.name, e)
@@ -222,7 +265,9 @@ async def async_main() -> None:
         status = "[red]FAIL[/red]" if errs else "[green]PASS[/green]"
         val_table.add_row(fname, status, ", ".join(errs) if errs else "-")
     console.print(val_table)
-    console.print(f"[dim]Passed: {len(valid_quotes)}  |  Failed: {len(failed_quotes)}[/dim]")
+    console.print(
+        f"[dim]Passed: {len(valid_quotes)}  |  Failed: {len(failed_quotes)}[/dim]"
+    )
 
     # ── Write failure log ──
     if failed_quotes:
@@ -235,12 +280,16 @@ async def async_main() -> None:
 
     # ── STEP 5: Merge passing quotes into DB ──
     if failed_quotes:
-        console.print(f"\n[yellow]Skipping {len(failed_quotes)} failed quote(s). Merging {len(valid_quotes)} passing...[/yellow]")
+        console.print(
+            f"\n[yellow]Skipping {len(failed_quotes)} failed quote(s). Merging {len(valid_quotes)} passing...[/yellow]"
+        )
     elif not valid_quotes:
         console.print("[yellow]No new quotes to merge (all already in DB).[/yellow]")
         return
     else:
-        console.print(f"\n[bold green]All {len(valid_quotes)} quotes passed validation. Merging into DB...[/bold green]")
+        console.print(
+            f"\n[bold green]All {len(valid_quotes)} quotes passed validation. Merging into DB...[/bold green]"
+        )
 
     merged_count = 0
     for quote, adj_total, delta, _ in valid_quotes:
@@ -255,15 +304,21 @@ async def async_main() -> None:
             logger.error("DB merge failed for %s: %s", quote.metadata.file_name, e)
 
     # ── Print final summary ──
-    console.print(f"\n[bold green]Merge complete: {merged_count} quotes added/updated[/bold green]")
+    console.print(
+        f"\n[bold green]Merge complete: {merged_count} quotes added/updated[/bold green]"
+    )
 
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
+
     from renovai.db.models import Quote
+
     async with session_maker() as session:
         res = await session.execute(select(func.count(Quote.id)))
         total = res.scalar()
     console.print(f"[bold]New total quotes in DB: {total}[/bold]")
-    console.print(f"[dim]Data limitation threshold check: the <3 similar cases warning will now use count={total}[/dim]")
+    console.print(
+        f"[dim]Data limitation threshold check: the <3 similar cases warning will now use count={total}[/dim]"
+    )
 
     # ── Summary table ──
     summary = Table(title="Ingestion Summary")
@@ -286,7 +341,7 @@ def write_validation_test(results: list[tuple[str, list[str]]]) -> None:
 
     lines = [
         f'"""Data quality validation for 2023/2024 quote ingestion.',
-        f'Generated: {now}',
+        f"Generated: {now}",
         f'"""',
         "import pytest",
         "from pathlib import Path",
@@ -295,95 +350,103 @@ def write_validation_test(results: list[tuple[str, list[str]]]) -> None:
         "",
         "QUOTES_2023 = sorted(Path('data/raw/quotes/2023').rglob('*.xlsx'))",
         "QUOTES_2024 = sorted(Path('data/raw/quotes/2024').rglob('*.xlsx'))",
-        'ALL_NEW_QUOTES = QUOTES_2023 + QUOTES_2024',
+        "ALL_NEW_QUOTES = QUOTES_2023 + QUOTES_2024",
         "",
         "",
     ]
 
     # Test 1: every quote file parses without error
-    lines.extend([
-        "def test_all_2023_2024_quotes_parse_without_error():",
-        '    """Check 1: every XLSX file parses to a RenovationQuote without exception."""',
-        "    errors = []",
-        "    for f in ALL_NEW_QUOTES:",
-        "        try:",
-        "            q = parse_quote(f)",
-        "            assert isinstance(q, RenovationQuote), f'{f.name}: not a RenovationQuote'",
-        "        except Exception as e:",
-        "            errors.append(f'{f.name}: {e}')",
-        "    assert not errors, '\\n'.join(errors)",
-        "",
-        "",
-    ])
+    lines.extend(
+        [
+            "def test_all_2023_2024_quotes_parse_without_error():",
+            '    """Check 1: every XLSX file parses to a RenovationQuote without exception."""',
+            "    errors = []",
+            "    for f in ALL_NEW_QUOTES:",
+            "        try:",
+            "            q = parse_quote(f)",
+            "            assert isinstance(q, RenovationQuote), f'{f.name}: not a RenovationQuote'",
+            "        except Exception as e:",
+            "            errors.append(f'{f.name}: {e}')",
+            "    assert not errors, '\\n'.join(errors)",
+            "",
+            "",
+        ]
+    )
 
     # Test 2: required fields (grand_total > 0, line_items not empty)
-    lines.extend([
-        "def test_required_fields_non_null():",
-        '    """Check 2: grand_total > 0, line_items not empty."""',
-        "    # Known exceptions: files with grand_total=0",
-        '    KNOWN_ZERO = {"r\\u00e9szleges, 2001 \\u00e9p\\u00edt\\u00e9s \\u00e9ve, nincs salak.xlsx"}',
-        "    errors = []",
-        "    for f in ALL_NEW_QUOTES:",
-        "        if f.name in KNOWN_ZERO:",
-        "            continue",
-        "        try:",
-        "            q = parse_quote(f)",
-        "            if q.metadata.grand_total is None or q.metadata.grand_total <= 0:",
-        "                errors.append(f'{f.name}: grand_total={q.metadata.grand_total}')",
-        "            if not q.line_items:",
-        "                errors.append(f'{f.name}: no line_items')",
-        "        except Exception as e:",
-        "            errors.append(f'{f.name}: parse error - {e}')",
-        "    assert not errors, '\\n'.join(errors)",
-        "",
-        "",
-    ])
+    lines.extend(
+        [
+            "def test_required_fields_non_null():",
+            '    """Check 2: grand_total > 0, line_items not empty."""',
+            "    # Known exceptions: files with grand_total=0",
+            '    KNOWN_ZERO = {"r\\u00e9szleges, 2001 \\u00e9p\\u00edt\\u00e9s \\u00e9ve, nincs salak.xlsx"}',
+            "    errors = []",
+            "    for f in ALL_NEW_QUOTES:",
+            "        if f.name in KNOWN_ZERO:",
+            "            continue",
+            "        try:",
+            "            q = parse_quote(f)",
+            "            if q.metadata.grand_total is None or q.metadata.grand_total <= 0:",
+            "                errors.append(f'{f.name}: grand_total={q.metadata.grand_total}')",
+            "            if not q.line_items:",
+            "                errors.append(f'{f.name}: no line_items')",
+            "        except Exception as e:",
+            "            errors.append(f'{f.name}: parse error - {e}')",
+            "    assert not errors, '\\n'.join(errors)",
+            "",
+            "",
+        ]
+    )
 
     # Test 3: inflation adjustment produces positive delta for most files
-    lines.extend([
-        "def test_inflation_adjustment_direction():",
-        '    """Check 3: most quotes have adjusted >= raw (inflation is positive for 2023/2024 -> 2026)."""',
-        "    from datetime import date",
-        "    from renovai.ingestion.inflation_calc import load_price_index, adjust_quote",
-        "    pi = load_price_index(",
-        "        Path('data/raw/inflation/materials_cpi.csv'),",
-        "        Path('data/raw/inflation/labor_cpi.csv'),",
-        "    )",
-        "    losses = []",
-        "    for f in ALL_NEW_QUOTES:",
-        "        try:",
-        "            folder_year = int(f.parent.name)",
-        "            q = parse_quote(f)",
-        "            adj = adjust_quote(q, pi, date(2026, 7, 10))",
-        "            if adj.grand_total_adjusted < adj.grand_total_original:",
-        "                pct = (adj.grand_total_adjusted / adj.grand_total_original - 1) * 100",
-        "                losses.append(f'{f.name}: {adj.grand_total_adjusted:,} < {adj.grand_total_original:,} ({pct:.1f}%)')",
-        "        except Exception as e:",
-        "            losses.append(f'{f.name}: {e}')",
-        "    # Allow some files to show losses when line-item component costs underrepresent total",
-        '    assert len(losses) < len(ALL_NEW_QUOTES) // 2, f"Too many losses:\\n" + "\\n".join(losses)',
-        "",
-        "",
-    ])
+    lines.extend(
+        [
+            "def test_inflation_adjustment_direction():",
+            '    """Check 3: most quotes have adjusted >= raw (inflation is positive for 2023/2024 -> 2026)."""',
+            "    from datetime import date",
+            "    from renovai.ingestion.inflation_calc import load_price_index, adjust_quote",
+            "    pi = load_price_index(",
+            "        Path('data/raw/inflation/materials_cpi.csv'),",
+            "        Path('data/raw/inflation/labor_cpi.csv'),",
+            "    )",
+            "    losses = []",
+            "    for f in ALL_NEW_QUOTES:",
+            "        try:",
+            "            folder_year = int(f.parent.name)",
+            "            q = parse_quote(f)",
+            "            adj = adjust_quote(q, pi, date(2026, 7, 10))",
+            "            if adj.grand_total_adjusted < adj.grand_total_original:",
+            "                pct = (adj.grand_total_adjusted / adj.grand_total_original - 1) * 100",
+            "                losses.append(f'{f.name}: {adj.grand_total_adjusted:,} < {adj.grand_total_original:,} ({pct:.1f}%)')",
+            "        except Exception as e:",
+            "            losses.append(f'{f.name}: {e}')",
+            "    # Allow some files to show losses when line-item component costs underrepresent total",
+            '    assert len(losses) < len(ALL_NEW_QUOTES) // 2, f"Too many losses:\\n" + "\\n".join(losses)',
+            "",
+            "",
+        ]
+    )
 
     # Test 4: scope flags vocabulary
-    lines.extend([
-        "def test_line_item_sections_use_valid_vocabulary():",
-        '    """Check 4: line item sections are one of known values."""',
-        "    VALID_SECTIONS = {'main', 'not_included', 'buyer_purchases', 'general_notes'}",
-        "    errors = []",
-        "    for f in ALL_NEW_QUOTES:",
-        "        try:",
-        "            q = parse_quote(f)",
-        "            for item in q.line_items + q.alternatives:",
-        "                if item.section not in VALID_SECTIONS:",
-        "                    errors.append(f'{f.name}: section=\"{item.section}\"')",
-        "        except Exception as e:",
-        "            errors.append(f'{f.name}: {e}')",
-        "    assert not errors, '\\n'.join(errors)",
-        "",
-        "",
-    ])
+    lines.extend(
+        [
+            "def test_line_item_sections_use_valid_vocabulary():",
+            '    """Check 4: line item sections are one of known values."""',
+            "    VALID_SECTIONS = {'main', 'not_included', 'buyer_purchases', 'general_notes'}",
+            "    errors = []",
+            "    for f in ALL_NEW_QUOTES:",
+            "        try:",
+            "            q = parse_quote(f)",
+            "            for item in q.line_items + q.alternatives:",
+            "                if item.section not in VALID_SECTIONS:",
+            "                    errors.append(f'{f.name}: section=\"{item.section}\"')",
+            "        except Exception as e:",
+            "            errors.append(f'{f.name}: {e}')",
+            "    assert not errors, '\\n'.join(errors)",
+            "",
+            "",
+        ]
+    )
 
     test_content = "\n".join(lines)
     with open(test_path, "w", encoding="utf-8") as f:

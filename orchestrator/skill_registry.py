@@ -11,12 +11,10 @@ Progressive disclosure layers:
   Layer 3: References (references/ directory) — loaded when estimation needed
 """
 
-import os
-import re
 import logging
-from pathlib import Path
+import re
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import Path
 
 import yaml
 
@@ -29,9 +27,11 @@ SKILLS_ROOT = Path(__file__).resolve().parent.parent / ".agent" / "skills"
 # Data models
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SkillInfo:
     """Immutable descriptor for a single agent skill."""
+
     name: str
     description: str
     trigger_conditions: list[str]
@@ -126,8 +126,12 @@ class SkillRegistry:
             calls=metadata.get("calls", {}),
             skill_dir=skill_dir,
             instructions_path=skill_file,
-            scripts_dir=skill_dir / "scripts" if (skill_dir / "scripts").is_dir() else None,
-            references_dir=skill_dir / "references" if (skill_dir / "references").is_dir() else None,
+            scripts_dir=skill_dir / "scripts"
+            if (skill_dir / "scripts").is_dir()
+            else None,
+            references_dir=skill_dir / "references"
+            if (skill_dir / "references").is_dir()
+            else None,
         )
 
     # -----------------------------------------------------------------------
@@ -154,7 +158,9 @@ class SkillRegistry:
 
         for skill in self._skills.values():
             score = 0
-            all_triggers = [skill.description.lower()] + [t.lower() for t in skill.trigger_conditions]
+            all_triggers = [skill.description.lower()] + [
+                t.lower() for t in skill.trigger_conditions
+            ]
             for t in all_triggers:
                 if intent_lower in t:
                     score += 1

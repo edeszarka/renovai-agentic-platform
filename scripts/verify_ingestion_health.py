@@ -6,6 +6,7 @@ time to confirm the DB state is consistent.
 
 Pass/fail on every check; prints a summary at the end.
 """
+
 import sys
 from pathlib import Path
 
@@ -35,17 +36,22 @@ def _report(passed: bool, msg: str) -> None:
 # Checks
 # ---------------------------------------------------------------------------
 
+
 def check_folder_counts():
     """Every year folder's XLSX count must match the DB Jan-1 count."""
-    from sqlalchemy import text
-    from renovai.db.session import get_engine, get_session_maker
     import asyncio
+
+    from sqlalchemy import text
+
+    from renovai.db.session import get_engine, get_session_maker
 
     async def _inner():
         eng = get_engine(DB_URL)
         sm = get_session_maker(eng)
         async with sm() as s:
-            for y in sorted(p.name for p in QUOTES_DIR.iterdir() if p.is_dir() and p.name.isdigit()):
+            for y in sorted(
+                p.name for p in QUOTES_DIR.iterdir() if p.is_dir() and p.name.isdigit()
+            ):
                 folder = QUOTES_DIR / y
                 xlsx_count = len(list(folder.glob("*.xlsx")))
                 r = await s.execute(
@@ -54,7 +60,9 @@ def check_folder_counts():
                 )
                 db_count = r.scalar()
                 ok = db_count == xlsx_count
-                _report(ok, f"{y}: {db_count} Jan-1 DB quotes vs {xlsx_count} folder XLSX")
+                _report(
+                    ok, f"{y}: {db_count} Jan-1 DB quotes vs {xlsx_count} folder XLSX"
+                )
         await eng.dispose()
 
     asyncio.run(_inner())
@@ -62,16 +70,20 @@ def check_folder_counts():
 
 def check_all_jan1():
     """No quote_date in the DB may be anything other than a Jan-1 date."""
-    from sqlalchemy import text
-    from renovai.db.session import get_engine, get_session_maker
     import asyncio
+
+    from sqlalchemy import text
+
+    from renovai.db.session import get_engine, get_session_maker
 
     async def _inner():
         eng = get_engine(DB_URL)
         sm = get_session_maker(eng)
         async with sm() as s:
             r = await s.execute(
-                text("SELECT file_name, quote_date FROM quotes WHERE quote_date IS NULL OR quote_date NOT LIKE '%-01-01'")
+                text(
+                    "SELECT file_name, quote_date FROM quotes WHERE quote_date IS NULL OR quote_date NOT LIKE '%-01-01'"
+                )
             )
             bad = r.fetchall()
             for fname, qd in bad:
@@ -85,13 +97,17 @@ def check_all_jan1():
 
 def check_total_quotes():
     """DB count minus known orphans should match total XLSX count."""
-    from sqlalchemy import text
-    from renovai.db.session import get_engine, get_session_maker
     import asyncio
+
+    from sqlalchemy import text
+
+    from renovai.db.session import get_engine, get_session_maker
 
     async def _inner():
         total_xlsx = sum(
-            len(list(d.glob("*.xlsx"))) for d in QUOTES_DIR.iterdir() if d.is_dir() and d.name.isdigit()
+            len(list(d.glob("*.xlsx")))
+            for d in QUOTES_DIR.iterdir()
+            if d.is_dir() and d.name.isdigit()
         )
         eng = get_engine(DB_URL)
         sm = get_session_maker(eng)
@@ -110,6 +126,7 @@ def check_total_quotes():
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     print("Ingestion health check\n")

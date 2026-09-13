@@ -7,17 +7,19 @@ This catches the class of bug where sparse data lets a poorly-representative
 small-flat quote outweigh area entirely (same root cause as the earlier
 "adding scope could decrease cost" bug — structural constraint missing).
 """
+
 import os
-import sys
 from datetime import date
 from pathlib import Path
 
 import pytest
 
+from renovai.db.session import get_engine, get_session_maker
+from renovai.ingestion.inflation_calc import load_price_index
 from renovai.predictor.feature_extractor import ApartmentInput
 from renovai.predictor.price_model import scope_matched_estimate
-from renovai.ingestion.inflation_calc import load_price_index
-from renovai.db.session import get_engine, get_session_maker
+
+pytestmark = pytest.mark.requires_local_corpus
 
 DB_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
 DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
@@ -76,7 +78,7 @@ async def test_price_monotonicity(session_maker, price_index):
     for i in range(1, len(estimates)):
         assert estimates[i] >= estimates[i - 1], (
             f"Monotonicity VIOLATION: {areas[i]}m2 ({estimates[i]:,}) < "
-            f"{areas[i-1]}m2 ({estimates[i-1]:,})"
+            f"{areas[i - 1]}m2 ({estimates[i - 1]:,})"
         )
 
     # 2. Price-per-m2 within plausible band (10k-600k HUF/m2)
@@ -147,7 +149,8 @@ async def test_building_type_era_affects_estimate(session_maker, price_index):
         "factor is not doing any work"
     )
     scope_avg_differ = any(
-        cats_a.get(k, {}).get("avg_per_sqm_huf") != cats_b.get(k, {}).get("avg_per_sqm_huf")
+        cats_a.get(k, {}).get("avg_per_sqm_huf")
+        != cats_b.get(k, {}).get("avg_per_sqm_huf")
         for k in cats_a
     )
     assert scope_avg_differ, (
@@ -165,8 +168,12 @@ async def test_49_vs_99_comparison(session_maker, price_index):
     apt_49 = ApartmentInput(total_area_sqm=49, num_rooms=2, **FULL_SCOPE)
     apt_99 = ApartmentInput(total_area_sqm=99, num_rooms=4, **FULL_SCOPE)
 
-    est_49 = await scope_matched_estimate(apt_49, session_maker, price_index, TARGET_DATE)
-    est_99 = await scope_matched_estimate(apt_99, session_maker, price_index, TARGET_DATE)
+    est_49 = await scope_matched_estimate(
+        apt_49, session_maker, price_index, TARGET_DATE
+    )
+    est_99 = await scope_matched_estimate(
+        apt_99, session_maker, price_index, TARGET_DATE
+    )
 
     assert est_49 is not None
     assert est_99 is not None

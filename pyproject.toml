@@ -52,3 +52,32 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "requires_local_corpus: test needs ignored, locally generated quote data",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+# Keep the first adoption focused on import hygiene and definite errors. These
+# existing style/flow findings require intent-sensitive cleanup, so they remain
+# documented backlog rather than being changed in this infrastructure PR.
+ignore = ["E402", "E701", "E731", "E741", "F541", "F811", "F821", "F841"]
+
+[tool.ruff.lint.per-file-ignores]
+# This legacy integration has imports used for optional runtime availability
+# checks; removing them would change its startup behavior.
+"orchestrator/handlers.py" = ["F401"]
+"app/streamlit_app.py" = ["F401"]
+"renovai/predictor/price_model.py" = ["F841"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+explicit_package_bases = true
+pretty = false
+show_error_codes = true
+exclude = ['^legacy/', '^\.agent/', '^scripts/refactor\.py$']

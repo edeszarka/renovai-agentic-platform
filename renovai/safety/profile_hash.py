@@ -1,9 +1,7 @@
 import hashlib
 import json
 import logging
-from pathlib import Path
 from typing import Any
-from datetime import datetime, timedelta, timezone
 
 from renovai.safety.cache import RenovAICache
 
@@ -93,22 +91,28 @@ class ApartmentProfileHasher:
         if cached is not None:
             logger.info(
                 "[tenant=%s] Profile cache HIT: %s",
-                self._tenant_id, cache_key,
+                self._tenant_id,
+                cache_key,
             )
         else:
             logger.info(
                 "[tenant=%s] Profile cache MISS: %s",
-                self._tenant_id, cache_key,
+                self._tenant_id,
+                cache_key,
             )
         return cached
 
-    async def cache_report(self, profile: dict[str, Any], report: dict[str, Any]) -> None:
+    async def cache_report(
+        self, profile: dict[str, Any], report: dict[str, Any]
+    ) -> None:
         """Cache a report for the given apartment profile."""
         cache_key = self.build_hash_key(profile)
         await self._cache.set(cache_key, report, ttl_seconds=self._report_ttl)
         logger.info(
             "[tenant=%s] Profile cache SET: %s (TTL=%ds)",
-            self._tenant_id, cache_key, self._report_ttl,
+            self._tenant_id,
+            cache_key,
+            self._report_ttl,
         )
 
     async def invalidate(self, profile: dict[str, Any]) -> None:
@@ -117,5 +121,6 @@ class ApartmentProfileHasher:
         await self._cache.invalidate(cache_key)
         logger.info(
             "[tenant=%s] Profile cache INVALIDATED: %s",
-            self._tenant_id, cache_key,
+            self._tenant_id,
+            cache_key,
         )

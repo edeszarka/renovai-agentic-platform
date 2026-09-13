@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -35,8 +35,13 @@ def _structural_inflation_factor(target_date: date, price_index: Any) -> float:
     return labor_share * f_labor + (1.0 - labor_share) * f_materials
 
 
-def _inflate_structural_value(value_huf: float, target_date: date, price_index: Any) -> int:
-    return int(round(value_huf * _structural_inflation_factor(target_date, price_index)))
+def _inflate_structural_value(
+    value_huf: float, target_date: date, price_index: Any
+) -> int:
+    return int(
+        round(value_huf * _structural_inflation_factor(target_date, price_index))
+    )
+
 
 # ---------------------------------------------------------------------------
 # 1. Ceiling-height labor multiplier (painting, plastering, skimming only)
@@ -46,6 +51,7 @@ def _inflate_structural_value(value_huf: float, target_date: date, price_index: 
 
 DEFAULT_CEILING_HEIGHT = 2.75
 
+
 def ceiling_height_multiplier(height_m: float) -> float:
     if height_m <= 0:
         return 1.0
@@ -54,10 +60,11 @@ def ceiling_height_multiplier(height_m: float) -> float:
     if height_m <= 3.0:
         return 2.75  # default for standard range
     if height_m <= 3.2:
-        return 3.0   # interpolate between 2.75 and 3.5
+        return 3.0  # interpolate between 2.75 and 3.5
     if height_m <= 4.0:
         return 3.5
     return 4.0
+
 
 def apply_height_surcharge(
     height_m: Optional[float],
@@ -79,7 +86,11 @@ def apply_height_surcharge(
     surcharge = adjusted - painting_plastering_base_labor
     logger.debug(
         "height_surcharge: height=%s, mult=%.2f, base=%.0f, adj=%.0f, surcharge=%.0f",
-        h, mult, painting_plastering_base_labor, adjusted, surcharge,
+        h,
+        mult,
+        painting_plastering_base_labor,
+        adjusted,
+        surcharge,
     )
     return (adjusted, surcharge)
 
@@ -91,6 +102,7 @@ def apply_height_surcharge(
 # Each chain: (trigger_condition, chain_steps, cost_low, cost_high, cost_point, description)
 
 ChainEntry = Dict[str, Any]
+
 
 def _era_pre_1970(building_era: Optional[str]) -> bool:
     if not building_era:
@@ -213,6 +225,7 @@ CHAIN_RULES: List[ChainEntry] = [
     },
 ]
 
+
 def detect_active_chains(
     scope: Dict[str, bool],
     building_era: Optional[str],
@@ -223,9 +236,12 @@ def detect_active_chains(
     """Return all chain rules whose trigger condition is met."""
     active = []
     for rule in CHAIN_RULES:
-        if rule["trigger"](scope, building_era, floor_number, gas_heating, building_type):
+        if rule["trigger"](
+            scope, building_era, floor_number, gas_heating, building_type
+        ):
             active.append(rule)
     return active
+
 
 def chain_total_cost(
     active_chains: List[ChainEntry],
@@ -243,9 +259,15 @@ def chain_total_cost(
     and price_index are supplied the result is inflated 2025 -> target_date.
     With either omitted the raw (undated) constant is returned unchanged.
     """
-    low = sum(c["base_cost_low"] + c["per_sqm_cost_low"] * area_sqm for c in active_chains)
-    high = sum(c["base_cost_high"] + c["per_sqm_cost_high"] * area_sqm for c in active_chains)
-    point = sum(c["base_cost_point"] + c["per_sqm_cost_point"] * area_sqm for c in active_chains)
+    low = sum(
+        c["base_cost_low"] + c["per_sqm_cost_low"] * area_sqm for c in active_chains
+    )
+    high = sum(
+        c["base_cost_high"] + c["per_sqm_cost_high"] * area_sqm for c in active_chains
+    )
+    point = sum(
+        c["base_cost_point"] + c["per_sqm_cost_point"] * area_sqm for c in active_chains
+    )
     if target_date is not None and price_index is not None:
         low = _inflate_structural_value(low, target_date, price_index)
         high = _inflate_structural_value(high, target_date, price_index)
@@ -256,6 +278,7 @@ def chain_total_cost(
 # ---------------------------------------------------------------------------
 # 2b. Pydantic guard for the chain cost-breakdown output
 # ---------------------------------------------------------------------------
+
 
 class CostBreakdownOutput(BaseModel):
     """Validated cost-breakdown output for the cascading chain rules.
@@ -280,8 +303,11 @@ class CostBreakdownOutput(BaseModel):
         """Raise a clear ValidationError if a matching chain rule is missing."""
         for rule in CHAIN_RULES:
             if rule["trigger"](
-                self.scope, self.building_era, self.floor_number,
-                self.gas_heating, self.building_type,
+                self.scope,
+                self.building_era,
+                self.floor_number,
+                self.gas_heating,
+                self.building_type,
             ):
                 if rule["id"] not in self.chain_ids_applied:
                     raise ValueError(
@@ -312,11 +338,17 @@ def build_chain_breakdown(
     Pydantic validator re-checks the result so an omission fails loudly.
     """
     active_chains = detect_active_chains(
-        scope, building_era, floor_number, gas_heating, building_type,
+        scope,
+        building_era,
+        floor_number,
+        gas_heating,
+        building_type,
     )
     costs = chain_total_cost(
-        active_chains, area_sqm=area_sqm,
-        target_date=target_date, price_index=price_index,
+        active_chains,
+        area_sqm=area_sqm,
+        target_date=target_date,
+        price_index=price_index,
     )
     return CostBreakdownOutput(
         chain_ids_applied=[c["id"] for c in active_chains],
@@ -338,6 +370,7 @@ def build_chain_breakdown(
 ELECTRICAL_STANDARDIZATION_MINIMUM = 300_000
 GAS_HEATING_INFRA_MINIMUM = 800_000
 
+
 def apply_infrastructure_minimums(
     base_estimate_low: int,
     base_estimate_mid: int,
@@ -358,8 +391,12 @@ def apply_infrastructure_minimums(
     low, mid, high = base_estimate_low, base_estimate_mid, base_estimate_high
 
     if target_date is not None and price_index is not None:
-        elec_min = _inflate_structural_value(ELECTRICAL_STANDARDIZATION_MINIMUM, target_date, price_index)
-        gas_min = _inflate_structural_value(GAS_HEATING_INFRA_MINIMUM, target_date, price_index)
+        elec_min = _inflate_structural_value(
+            ELECTRICAL_STANDARDIZATION_MINIMUM, target_date, price_index
+        )
+        gas_min = _inflate_structural_value(
+            GAS_HEATING_INFRA_MINIMUM, target_date, price_index
+        )
     else:
         elec_min = ELECTRICAL_STANDARDIZATION_MINIMUM
         gas_min = GAS_HEATING_INFRA_MINIMUM
@@ -394,6 +431,7 @@ def apply_infrastructure_minimums(
 # ---------------------------------------------------------------------------
 LOGISTICS_SURCHARGE_PCT = 0.15  # 15% of total labor
 
+
 def compute_logistics_surcharge(total_labor_huf: float) -> float:
     return total_labor_huf * LOGISTICS_SURCHARGE_PCT
 
@@ -405,6 +443,7 @@ def compute_logistics_surcharge(total_labor_huf: float) -> float:
 # but no exact figure was given. This is a placeholder config constant so it
 # can be tuned without touching logic.
 ELEVATOR_SURCHARGE_PER_FLOOR = 50_000  # placeholder — needs expert confirmation
+
 
 def elevator_surcharge(
     elevator_type: Optional[str],
@@ -428,6 +467,7 @@ def elevator_surcharge(
 
 CHIMNEY_TECHNICIAN_BASE = 80_000  # base cost
 CHIMNEY_TECHNICIAN_PER_FLOOR = 20_000  # per floor above ground
+
 
 def chimney_technician_cost(
     floor_number: Optional[int],

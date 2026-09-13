@@ -1,44 +1,55 @@
 import json
-import re
 import logging
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import List, Literal, Optional, Tuple
+
 from google import genai
 from google.genai import types
-from pathlib import Path
-from datetime import datetime
-from typing import List, Optional, Literal, Tuple, Dict, Any, Callable
 from pydantic import BaseModel
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryError
+from tenacity import (
+    RetryError,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
-from ..rag.pipeline import RAGPipeline, RAGResponse
-from ..rag.retriever import Chunk
-from ..rag.gemini_client import GeminiConfig
 from ..ingestion.inflation_models import PriceIndex
 from ..predictor.feature_extractor import ApartmentInput, apartment_input_to_features
-from ..predictor.price_model import predict, find_similar_quotes
+from ..predictor.price_model import find_similar_quotes, predict
+from ..rag.gemini_client import GeminiConfig
+from ..rag.pipeline import RAGPipeline
 
 logger = logging.getLogger(__name__)
+
 
 class ApartmentProfile(BaseModel):
     address_district: int
     floor_area_sqm: float
     num_rooms: int
     building_type: Literal["panel", "tégla", "újépítés", "ismeretlen"]
-    building_era_approx: Optional[int]  # canonical representative year (e.g. 1960), not a band key
+    building_era_approx: Optional[
+        int
+    ]  # canonical representative year (e.g. 1960), not a band key
     current_condition: Literal[
-        "nagyon_rossz",     # everything needs replacing
-        "közepes",          # partially renovated
-        "lakható",          # liveable but dated
+        "nagyon_rossz",  # everything needs replacing
+        "közepes",  # partially renovated
+        "lakható",  # liveable but dated
     ]
-    known_issues: List[str]     # free text, e.g. ["penész a fürdőben", "régi vezetékek"]
-    has_seen_in_person: bool    # True if buyer has already visited
+    known_issues: List[str]  # free text, e.g. ["penész a fürdőben", "régi vezetékek"]
+    has_seen_in_person: bool  # True if buyer has already visited
     asking_price_million_huf: Optional[float]
 
+
 class ChecklistItem(BaseModel):
-    category: str           # e.g. "Víz és csatorna", "Villanyszerelés"
-    item: str               # the specific thing to check / question to ask
+    category: str  # e.g. "Víz és csatorna", "Villanyszerelés"
+    item: str  # the specific thing to check / question to ask
     priority: Literal["kritikus", "fontos", "érdemes_megnézni"] = "fontos"
-    why: str = ""           # one sentence explanation in Hungarian
-    rag_source: Optional[str] = None # source_file that this came from
+    why: str = ""  # one sentence explanation in Hungarian
+    rag_source: Optional[str] = None  # source_file that this came from
+
 
 class AdvisoryReport(BaseModel):
     apartment_profile: ApartmentProfile
@@ -48,12 +59,13 @@ class AdvisoryReport(BaseModel):
     inspection_checklist: List[ChecklistItem]
     red_flags: List[ChecklistItem]
 
-    cost_estimate: dict           # from Module 6 price predictor
-    similar_cases: List[dict]     # from find_similar_quotes()
+    cost_estimate: dict  # from Module 6 price predictor
+    similar_cases: List[dict]  # from find_similar_quotes()
 
     rag_sources_used: List[str]
     overall_risk: Literal["alacsony", "közepes", "magas"]
-    summary_hu: str               # 3–5 sentence executive summary in Hungarian
+    summary_hu: str  # 3–5 sentence executive summary in Hungarian
+
 
 ADVISORY_QUERY_TEMPLATES = [
     "Mit kell megkérdezni az eladótól {building_type} épületnél vásárlás előtt?",
@@ -70,8 +82,9 @@ ERA_MAP = {
     1960: "1945 és 1970 között",
     1980: "1970 és 1990 között",
     2000: "1990 és 2010 között",
-    2015: "2010 után"
+    2015: "2010 után",
 }
+
 
 def _era_label(era: Optional[int]) -> str:
     """Map a canonical representative year to a human-readable era band."""
@@ -82,75 +95,82 @@ def _era_label(era: Optional[int]) -> str:
             return ERA_MAP[threshold]
     return ERA_MAP[2015]
 
+
 CONDITION_MAP = {
     "nagyon_rossz": "nagyon rossz (felújítandó)",
     "közepes": "közepes",
-    "lakható": "lakható (régi)"
+    "lakható": "lakható (régi)",
 }
 
+
 def gather_advisory_context(
-    profile: ApartmentProfile,
-    rag_pipeline: RAGPipeline
+    profile: ApartmentProfile, rag_pipeline: RAGPipeline
 ) -> Tuple[str, List[str]]:
     """Runs multiple RAG queries and aggregates context."""
     all_chunks = {}
-    
+
     era_str = _era_label(profile.building_era_approx)
     cond_str = CONDITION_MAP.get(profile.current_condition, "ismeretlen")
-    
+
     for template in ADVISORY_QUERY_TEMPLATES:
         query = template.format(
             building_type=profile.building_type,
             building_era=era_str,
-            condition=cond_str
+            condition=cond_str,
         )
         _, trace = rag_pipeline.query_with_trace(query)
         for chunk in trace.chunks:
             all_chunks[chunk.chunk_id] = chunk
-            
+
     # Assemble context string from unique chunks
     unique_chunks = list(all_chunks.values())
     context_parts = []
     sources = set()
     for i, chunk in enumerate(unique_chunks):
-        context_parts.append(f"[FORRÁS {i+1}: {chunk.source_file} | {chunk.section}]\n{chunk.content}\n---")
+        context_parts.append(
+            f"[FORRÁS {i + 1}: {chunk.source_file} | {chunk.section}]\n{chunk.content}\n---"
+        )
         sources.add(chunk.source_file)
-        
+
     return "\n\n".join(context_parts), sorted(list(sources))
+
 
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=2, min=1, max=10),
     retry=retry_if_exception_type(Exception),
 )
-def _generate_with_retry(client: genai.Client, model: str, prompt: str, config: types.GenerateContentConfig):
+def _generate_with_retry(
+    client: genai.Client, model: str, prompt: str, config: types.GenerateContentConfig
+):
     try:
         return client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=config
+            model=model, contents=prompt, config=config
         )
     except Exception as e:
         err = str(e).lower()
         if "429" in err or "resource_exhausted" in err or "quota" in err:
-            logger.warning("Gemini quota exhausted in advisor. Raising immediately (no retry).")
+            logger.warning(
+                "Gemini quota exhausted in advisor. Raising immediately (no retry)."
+            )
             raise
         if "503" in err or "502" in err:
             logger.warning(f"Gemini transient error ({err[:60]}...). Retrying...")
             raise
         raise
 
+
 def generate_report(
     profile: ApartmentProfile,
     rag_pipeline: RAGPipeline,
     price_predictor_model_dir: Path,
     price_index: PriceIndex,
-    gemini_config: GeminiConfig
+    gemini_config: GeminiConfig,
 ) -> AdvisoryReport:
     """Generates the full advisory report."""
     # 1. Gather Context
     rag_context, rag_sources = gather_advisory_context(profile, rag_pipeline)
-    
+
     # 2. Apartment Summary
     era_str = _era_label(profile.building_era_approx)
     cond_str = CONDITION_MAP.get(profile.current_condition, "ismeretlen")
@@ -161,10 +181,10 @@ def generate_report(
         f"Ismert hibák: {', '.join(profile.known_issues)}. "
         f"Személyesen látta: {'Igen' if profile.has_seen_in_person else 'Nem'}."
     )
-    
+
     # 3. Call Gemini for structured checklist
     client = genai.Client(api_key=gemini_config.api_key)
-    
+
     # Ensure model name has 'models/' prefix if it doesn't already
     model_id = gemini_config.model_name
     if not (model_id.startswith("models/") or model_id.startswith("tunedModels/")):
@@ -202,17 +222,17 @@ A végén add meg az eredményt JSON formátumban is, a következő struktúráb
 
 Every item in all three lists MUST include these exact keys: 'category' (string), 'item' (string), 'priority' (one of: kritikus, fontos, érdemes_megnézni), 'why' (one sentence explanation in Hungarian), 'rag_source' (source filename or null). Missing any key is not acceptable.
 """
-    
+
     gen_config = types.GenerateContentConfig(
         temperature=0.2,
     )
-    
+
     # 3b. Call Gemini for structured checklist — with graceful fallback on failure
     try:
         response = _generate_with_retry(client, model_id, prompt, gen_config)
         response_text = response.text
-        
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+
+        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
         if json_match:
             try:
                 report_data = json.loads(json_match.group())
@@ -220,7 +240,7 @@ Every item in all three lists MUST include these exact keys: 'category' (string)
                 report_data = {"questions": [], "inspection": [], "red_flags": []}
         else:
             report_data = {"questions": [], "inspection": [], "red_flags": []}
-            
+
         q_items = [ChecklistItem(**it) for it in report_data.get("questions", [])]
         i_items = [ChecklistItem(**it) for it in report_data.get("inspection", [])]
         r_items = [ChecklistItem(**it) for it in report_data.get("red_flags", [])]
@@ -240,12 +260,14 @@ Every item in all three lists MUST include these exact keys: 'category' (string)
         needs_electrical=True,
         needs_flooring=True,
         needs_full_demolition=profile.current_condition == "nagyon_rossz",
-        suspected_slag="kohósalak" in "".join(profile.known_issues).lower()
+        suspected_slag="kohósalak" in "".join(profile.known_issues).lower(),
     )
     feat = apartment_input_to_features(apt_input)
-    cost_est = predict(feat, price_index, datetime.now().date(), price_predictor_model_dir)
+    cost_est = predict(
+        feat, price_index, datetime.now().date(), price_predictor_model_dir
+    )
     similar = find_similar_quotes(feat, Path("data/processed/quotes_json/"))
-    
+
     # 5. Risk
     risk = "alacsony"
     if any(it.priority == "kritikus" for it in r_items):
@@ -256,7 +278,9 @@ Every item in all three lists MUST include these exact keys: 'category' (string)
     # Summary
     try:
         summary_prompt = f"Készíts egy 3-5 mondatos magyar nyelvű vezetői összefoglalót ehhez a lakásvásárlási tanácsadóhoz: {response_text[:1000]}"
-        summary_resp = _generate_with_retry(client, model_id, summary_prompt, gen_config)
+        summary_resp = _generate_with_retry(
+            client, model_id, summary_prompt, gen_config
+        )
         summary_hu = summary_resp.text.strip()
     except (RetryError, Exception) as e:
         logger.error("Gemini summary call failed: %s", e)
@@ -276,5 +300,5 @@ Every item in all three lists MUST include these exact keys: 'category' (string)
         similar_cases=similar,
         rag_sources_used=rag_sources,
         overall_risk=risk,
-        summary_hu=summary_hu
+        summary_hu=summary_hu,
     )

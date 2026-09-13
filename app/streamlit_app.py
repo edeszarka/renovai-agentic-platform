@@ -8,18 +8,16 @@ import concurrent.futures
 import logging
 import os
 import uuid
-
 from pathlib import Path
-
-from orchestrator.handlers import handle_expert_interview, handle_construction_planning
-from orchestrator.policy_service import PolicyService
-from orchestrator.skill_registry import SkillRegistry
 
 import streamlit as st
 
+from orchestrator.handlers import handle_construction_planning, handle_expert_interview
+from orchestrator.policy_service import PolicyService
+from orchestrator.skill_registry import SkillRegistry
 from renovai.api.config import AppConfig
-from renovai.ingestion.inflation_calc import load_price_index as _load_price_index
 from renovai.db.session import get_engine, get_session_maker
+from renovai.ingestion.inflation_calc import load_price_index as _load_price_index
 
 logger = logging.getLogger("renovai-streamlit")
 
@@ -79,7 +77,6 @@ LANG = {
         "tab1.confidence_label": "Megbízhatóság: {score}",
         "tab1.green_team_label": "⚠️ Ez az eredmény felülvizsgálatot igényel (Green Team ellenőrzés).",
         "tab1.green_team_hint": "Az eredmény megjelenik, de szakértői áttekintés javasolt a döntés előtt.",
-
         "tab2.subtitle": "Felújítási Tervező — Részletes terv és költségvetés",
         "tab2.desc": "Add meg a lakás adatait, és válaszd ki a felújítás típusát. A rendszer ütemtervet és költségbecslést készít.",
         "tab2.scope_label": "Felújítás típusa",
@@ -212,7 +209,6 @@ LANG = {
         "tab1.confidence_label": "Confidence: {score}",
         "tab1.green_team_label": "⚠️ This result requires human review (Green Team check).",
         "tab1.green_team_hint": "The result is shown, but an expert review is recommended before deciding.",
-
         "tab2.subtitle": "Renovation Planner — Detailed Plan & Budget",
         "tab2.desc": "Enter the apartment details and select the renovation type. The system generates a phased plan and cost estimate.",
         "tab2.scope_label": "Renovation Type",
@@ -293,10 +289,6 @@ LANG = {
 }
 
 
-
-
-
-
 st.set_page_config(
     page_title="RenovAI — Felújítási tanácsadó",
     page_icon="🏠",
@@ -367,7 +359,9 @@ def _init_session_state():
     if "lang" not in st.session_state:
         st.session_state.lang = "HU"
     if "session_maker" not in st.session_state:
-        engine = get_engine(os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"))
+        engine = get_engine(
+            os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
+        )
         st.session_state.session_maker = get_session_maker(engine)
 
 
@@ -438,9 +432,7 @@ if tab_selection == _("nav.tab1"):
         area_sqm = st.number_input(
             _("tab1.area"), min_value=20, max_value=200, value=55, step=5
         )
-        num_rooms = st.number_input(
-            _("tab1.rooms"), min_value=1, max_value=8, value=2
-        )
+        num_rooms = st.number_input(_("tab1.rooms"), min_value=1, max_value=8, value=2)
 
         bt_opts = ["tégla", "panel", "újépítés", "ismeretlen"]
         bt_fmt = {
@@ -495,7 +487,12 @@ if tab_selection == _("nav.tab1"):
             format_func=floor_fmt.get,
         )
 
-        wall_opts = ["ismeretlen", "fűrészporos_tapéta", "normál_vakolt", "40_60_éves_vakolat"]
+        wall_opts = [
+            "ismeretlen",
+            "fűrészporos_tapéta",
+            "normál_vakolt",
+            "40_60_éves_vakolat",
+        ]
         wall_fmt = {
             "ismeretlen": _("tab1.wall_unknown"),
             "fűrészporos_tapéta": _("tab1.wall_fureszporos"),
@@ -514,9 +511,7 @@ if tab_selection == _("nav.tab1"):
             height=100,
         )
 
-        run_prep = st.button(
-            _("tab1.button"), type="primary", use_container_width=True
-        )
+        run_prep = st.button(_("tab1.button"), type="primary", use_container_width=True)
 
     with col2:
         if run_prep:
@@ -537,7 +532,11 @@ if tab_selection == _("nav.tab1"):
                         "panel": "panel födém",
                     }
 
-                    has_slag = floor_construction == "acél_gerendás" and era_key in ("1900_elott", "1900_1945", "1945_1970")
+                    has_slag = floor_construction == "acél_gerendás" and era_key in (
+                        "1900_elott",
+                        "1900_1945",
+                        "1945_1970",
+                    )
 
                     params = {
                         "district": district,
@@ -571,7 +570,12 @@ if tab_selection == _("nav.tab1"):
                         summary = data.get("summary_hu", "")
                         conf = data.get("confidence", {})
 
-                        risk_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}
+                        risk_icon = {
+                            "CRITICAL": "🔴",
+                            "HIGH": "🟠",
+                            "MEDIUM": "🟡",
+                            "LOW": "🟢",
+                        }
                         st.subheader(
                             f"{risk_icon.get(risk, '🟢')} "
                             + _("tab1.risk_label", risk=risk)
@@ -584,15 +588,22 @@ if tab_selection == _("nav.tab1"):
                                 expanded=len(red_flags) > 0,
                             ):
                                 for rf in red_flags:
-                                    risk_icon_r = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}
+                                    risk_icon_r = {
+                                        "CRITICAL": "🔴",
+                                        "HIGH": "🟠",
+                                        "MEDIUM": "🟡",
+                                        "LOW": "🟢",
+                                    }
                                     st.markdown(
                                         f"**{risk_icon_r.get(rf.get('risk', 'MEDIUM'), '🟡')} "
                                         f"{rf['title']}**"
                                     )
                                     st.markdown(f"{rf.get('detail', '')}")
-                                    if rf.get('estimated_cost'):
-                                        st.markdown(f"💰 *Becsült költség:* {rf['estimated_cost']}")
-                                    if rf.get('action'):
+                                    if rf.get("estimated_cost"):
+                                        st.markdown(
+                                            f"💰 *Becsült költség:* {rf['estimated_cost']}"
+                                        )
+                                    if rf.get("action"):
                                         st.markdown(f"✅ *Javaslat:* {rf['action']}")
                                     st.divider()
 
@@ -620,8 +631,10 @@ if tab_selection == _("nav.tab1"):
 
                         if conf:
                             st.caption(
-                                _("tab1.confidence_label",
-                                  score=f"{conf.get('score', 0):.0%}")
+                                _(
+                                    "tab1.confidence_label",
+                                    score=f"{conf.get('score', 0):.0%}",
+                                )
                             )
 
                         if data.get("needs_intervention"):
@@ -646,7 +659,9 @@ elif tab_selection == _("nav.tab2"):
         renovation_scope = st.radio(
             _("tab2.scope_label"),
             options=["full", "partial"],
-            format_func=lambda x: _("tab2.scope_full") if x == "full" else _("tab2.scope_partial"),
+            format_func=lambda x: (
+                _("tab2.scope_full") if x == "full" else _("tab2.scope_partial")
+            ),
             horizontal=True,
             help=_("tab2.scope_full_help") if "full" else _("tab2.scope_partial_help"),
         )
@@ -660,11 +675,16 @@ elif tab_selection == _("nav.tab2"):
         area_sqm = st.number_input(
             _("tab2.area"), min_value=20, max_value=200, value=55, step=5
         )
-        num_rooms = st.number_input(
-            _("tab2.rooms"), min_value=1, max_value=8, value=2
-        )
+        num_rooms = st.number_input(_("tab2.rooms"), min_value=1, max_value=8, value=2)
 
-        era_opts_t2 = ["1900_elott", "1900_1945", "1945_1970", "1970_1990", "1990_utan", "ismeretlen"]
+        era_opts_t2 = [
+            "1900_elott",
+            "1900_1945",
+            "1945_1970",
+            "1970_1990",
+            "1990_utan",
+            "ismeretlen",
+        ]
         era_fmt_t2 = {
             "1900_elott": _("tab2.era_1900_elott"),
             "1900_1945": _("tab2.era_1900_1945"),
@@ -705,7 +725,12 @@ elif tab_selection == _("nav.tab2"):
             format_func=floor_fmt_t2.get,
         )
 
-        wall_opts_t2 = ["ismeretlen", "fűrészporos_tapéta", "normál_vakolt", "40_60_éves_vakolat"]
+        wall_opts_t2 = [
+            "ismeretlen",
+            "fűrészporos_tapéta",
+            "normál_vakolt",
+            "40_60_éves_vakolat",
+        ]
         wall_fmt_t2 = {
             "ismeretlen": _("tab2.wall_unknown"),
             "fűrészporos_tapéta": _("tab2.wall_fureszporos"),
@@ -725,14 +750,19 @@ elif tab_selection == _("nav.tab2"):
         with adv_cols[0]:
             ceiling_height = st.number_input(
                 _("tab2.ceiling_height"),
-                min_value=2.0, max_value=6.0, value=2.75, step=0.05,
+                min_value=2.0,
+                max_value=6.0,
+                value=2.75,
+                step=0.05,
                 format="%.2f",
                 help=_("tab2.ceiling_height_help"),
             )
         with adv_cols[1]:
             floor_number = st.number_input(
                 _("tab2.floor_number"),
-                min_value=1, max_value=50, value=1,
+                min_value=1,
+                max_value=50,
+                value=1,
                 help=_("tab2.floor_number_help"),
             )
 
@@ -757,9 +787,17 @@ elif tab_selection == _("nav.tab2"):
 
         partial_scope = {}
         if renovation_scope == "partial":
-            scope_header = "Munkafázisok kiválasztása" if st.session_state.get("lang", "HU") == "HU" else "Select Work Phases"
+            scope_header = (
+                "Munkafázisok kiválasztása"
+                if st.session_state.get("lang", "HU") == "HU"
+                else "Select Work Phases"
+            )
             st.subheader(scope_header)
-            st.caption("Jelöld be a tervezett munkafázisokat" if st.session_state.get("lang", "HU") == "HU" else "Select the planned work phases")
+            st.caption(
+                "Jelöld be a tervezett munkafázisokat"
+                if st.session_state.get("lang", "HU") == "HU"
+                else "Select the planned work phases"
+            )
 
             # Grouped by work type category
             t = lambda hu, en: hu if st.session_state.get("lang", "HU") == "HU" else en
@@ -767,51 +805,77 @@ elif tab_selection == _("nav.tab2"):
             st.markdown(f"**{t('Szerkezeti munkák', 'Structural Work')}**")
             scope_cols = st.columns(3)
             with scope_cols[0]:
-                partial_scope["demolition"] = st.checkbox(t("Bontás", "Demolition"), value=True)
+                partial_scope["demolition"] = st.checkbox(
+                    t("Bontás", "Demolition"), value=True
+                )
             with scope_cols[1]:
-                partial_scope["masonry"] = st.checkbox(t("Kőműves falazás", "Masonry"), value=True)
+                partial_scope["masonry"] = st.checkbox(
+                    t("Kőműves falazás", "Masonry"), value=True
+                )
             with scope_cols[2]:
-                partial_scope["drywall"] = st.checkbox(t("Gipszkarton/álmennyezet", "Drywall/ceiling"), value=False)
+                partial_scope["drywall"] = st.checkbox(
+                    t("Gipszkarton/álmennyezet", "Drywall/ceiling"), value=False
+                )
 
             st.markdown(f"**{t('Gépészet', 'Mechanical (MEP)')}**")
             scope_cols = st.columns(3)
             with scope_cols[0]:
-                partial_scope["plumbing"] = st.checkbox(t("Víz és fűtés", "Plumbing"), value=False)
+                partial_scope["plumbing"] = st.checkbox(
+                    t("Víz és fűtés", "Plumbing"), value=False
+                )
             with scope_cols[1]:
-                partial_scope["electrical"] = st.checkbox(t("Villanyszerelés", "Electrical"), value=False)
+                partial_scope["electrical"] = st.checkbox(
+                    t("Villanyszerelés", "Electrical"), value=False
+                )
             with scope_cols[2]:
-                partial_scope["heating"] = st.checkbox(t("Fűtésrendszer", "Heating system"), value=False)
+                partial_scope["heating"] = st.checkbox(
+                    t("Fűtésrendszer", "Heating system"), value=False
+                )
 
             st.markdown(f"**{t('Felületek', 'Surfaces')}**")
             scope_cols = st.columns(3)
             with scope_cols[0]:
-                partial_scope["plastering"] = st.checkbox(t("Vakolás/glettelés", "Plastering"), value=True)
+                partial_scope["plastering"] = st.checkbox(
+                    t("Vakolás/glettelés", "Plastering"), value=True
+                )
             with scope_cols[1]:
-                partial_scope["flooring"] = st.checkbox(t("Burkolás", "Flooring/tiling"), value=True)
+                partial_scope["flooring"] = st.checkbox(
+                    t("Burkolás", "Flooring/tiling"), value=True
+                )
             with scope_cols[2]:
-                partial_scope["painting"] = st.checkbox(t("Festés", "Painting"), value=True)
+                partial_scope["painting"] = st.checkbox(
+                    t("Festés", "Painting"), value=True
+                )
 
             st.markdown(f"**{t('Szigetelés és nyílászáró', 'Insulation & Openings')}**")
             scope_cols = st.columns(3)
             with scope_cols[0]:
-                partial_scope["insulation"] = st.checkbox(t("Szigetelés", "Insulation"), value=False)
+                partial_scope["insulation"] = st.checkbox(
+                    t("Szigetelés", "Insulation"), value=False
+                )
             with scope_cols[1]:
-                partial_scope["windows_doors"] = st.checkbox(t("Nyílászáró csere", "Windows/doors"), value=False)
+                partial_scope["windows_doors"] = st.checkbox(
+                    t("Nyílászáró csere", "Windows/doors"), value=False
+                )
             with scope_cols[2]:
                 partial_scope["ac"] = st.checkbox(t("Klíma", "AC"), value=False)
 
             st.markdown(f"**{t('Helyiségek', 'Rooms')}**")
             scope_cols = st.columns(3)
             with scope_cols[0]:
-                partial_scope["kitchen"] = st.checkbox(t("Konyhabútor", "Kitchen cabinetry"), value=False)
+                partial_scope["kitchen"] = st.checkbox(
+                    t("Konyhabútor", "Kitchen cabinetry"), value=False
+                )
             with scope_cols[1]:
-                partial_scope["bathroom"] = st.checkbox(t("Fürdőszoba", "Bathroom"), value=False)
+                partial_scope["bathroom"] = st.checkbox(
+                    t("Fürdőszoba", "Bathroom"), value=False
+                )
             with scope_cols[2]:
-                partial_scope["built_in_shower"] = st.checkbox(t("Épített zuhany", "Built-in shower"), value=False)
+                partial_scope["built_in_shower"] = st.checkbox(
+                    t("Épített zuhany", "Built-in shower"), value=False
+                )
 
-        run_plan = st.button(
-            _("tab2.button"), type="primary", use_container_width=True
-        )
+        run_plan = st.button(_("tab2.button"), type="primary", use_container_width=True)
 
     with col2:
         if run_plan:
@@ -831,20 +895,23 @@ elif tab_selection == _("nav.tab2"):
                     }
 
                     scope_flags = {
-                        "slag": floor_construction_t2 == "acél_gerendás" and era_key_t2 in ("1900_elott", "1900_1945", "1945_1970"),
+                        "slag": floor_construction_t2 == "acél_gerendás"
+                        and era_key_t2 in ("1900_elott", "1900_1945", "1945_1970"),
                         "built_in_shower": False,
                     }
 
                     if renovation_scope == "full":
-                        scope_flags.update({
-                            "demolition": True,
-                            "masonry": True,
-                            "plumbing": True,
-                            "electrical": True,
-                            "plastering": True,
-                            "flooring": True,
-                            "painting": True,
-                        })
+                        scope_flags.update(
+                            {
+                                "demolition": True,
+                                "masonry": True,
+                                "plumbing": True,
+                                "electrical": True,
+                                "plastering": True,
+                                "flooring": True,
+                                "painting": True,
+                            }
+                        )
                     else:
                         scope_flags.update(partial_scope)
 
@@ -852,13 +919,17 @@ elif tab_selection == _("nav.tab2"):
                         "area_sqm": area_sqm,
                         "building_type": building_type_t2,
                         "building_era": era_year_t2,
-                        "floor_construction": floor_map_t2.get(floor_construction_t2, ""),
+                        "floor_construction": floor_map_t2.get(
+                            floor_construction_t2, ""
+                        ),
                         "wall_condition": wall_cond,
                         "scope_flags": scope_flags,
                         "renovation_scope": renovation_scope,
                         "want_sequence": True,
                         "ceiling_height": ceiling_height,
-                        "elevator_type": elevator_type if elevator_type != "unknown" else None,
+                        "elevator_type": elevator_type
+                        if elevator_type != "unknown"
+                        else None,
                         "gas_heating": gas_heating,
                         "floor_number": floor_number,
                     }
@@ -866,7 +937,9 @@ elif tab_selection == _("nav.tab2"):
                     policy, registry, trace_id = _init_handler()
 
                     result = _run_async(
-                        handle_construction_planning(plan_params, policy, registry, trace_id)
+                        handle_construction_planning(
+                            plan_params, policy, registry, trace_id
+                        )
                     )
 
                     if result.get("status") != "ok":
@@ -917,9 +990,15 @@ elif tab_selection == _("nav.tab2"):
                         # Corpus stats
                         try:
                             from renovai.db.quote_stats import compute_per_sqm_stats
-                            sm = get_session_maker(get_engine(
-                                os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
-                            ))
+
+                            sm = get_session_maker(
+                                get_engine(
+                                    os.getenv(
+                                        "DATABASE_URL",
+                                        "sqlite+aiosqlite:///data/renovai.db",
+                                    )
+                                )
+                            )
                             corpus_stats = _run_async(compute_per_sqm_stats(sm))
                         except Exception as exc:
                             logger.warning("Corpus stats unavailable: %s", exc)
@@ -927,35 +1006,65 @@ elif tab_selection == _("nav.tab2"):
 
                         if corpus_stats:
                             o = corpus_stats["overall_per_sqm"]
-                            with st.expander(_("tab2.market_comparison"), expanded=True):
+                            with st.expander(
+                                _("tab2.market_comparison"), expanded=True
+                            ):
                                 st.caption(
                                     _("tab2.market_comparison_help")
                                     + f" ({corpus_stats['num_quotes']} {_('tab2.market_count')})"
                                 )
                                 mcols = st.columns(4)
-                                mcols[0].metric(_("tab2.market_avg"), f"{fmt_huf(o['avg'])} {_('tab2.market_unit')}")
-                                mcols[1].metric(_("tab2.market_median"), f"{fmt_huf(o['median'])} {_('tab2.market_unit')}")
-                                mcols[2].metric(_("tab2.market_min"), f"{fmt_huf(o['min'])} {_('tab2.market_unit')}")
-                                mcols[3].metric(_("tab2.market_max"), f"{fmt_huf(o['max'])} {_('tab2.market_unit')}")
+                                mcols[0].metric(
+                                    _("tab2.market_avg"),
+                                    f"{fmt_huf(o['avg'])} {_('tab2.market_unit')}",
+                                )
+                                mcols[1].metric(
+                                    _("tab2.market_median"),
+                                    f"{fmt_huf(o['median'])} {_('tab2.market_unit')}",
+                                )
+                                mcols[2].metric(
+                                    _("tab2.market_min"),
+                                    f"{fmt_huf(o['min'])} {_('tab2.market_unit')}",
+                                )
+                                mcols[3].metric(
+                                    _("tab2.market_max"),
+                                    f"{fmt_huf(o['max'])} {_('tab2.market_unit')}",
+                                )
 
                                 st.markdown("---")
-                                st.markdown(f"**{_('tab2.phases_title')}** — {_('tab2.market_unit')}")
+                                st.markdown(
+                                    f"**{_('tab2.phases_title')}** — {_('tab2.market_unit')}"
+                                )
 
                                 cat_rows = []
                                 for key, cat in corpus_stats["by_category"].items():
-                                    cat_rows.append({
-                                        "Munkafázis" if st.session_state.get("lang", "HU") == "HU" else "Work phase":
-                                            cat["label_hu"] if st.session_state.get("lang", "HU") == "HU" else cat["label_en"],
-                                        _("tab2.market_count"): cat["count"],
-                                        _("tab2.market_avg"): f"{fmt_huf(cat['avg_per_sqm'])} {_('tab2.market_unit')}",
-                                        _("tab2.market_median"): f"{fmt_huf(cat['median_per_sqm'])} {_('tab2.market_unit')}",
-                                        f"{_('tab2.market_min')} → {_('tab2.market_max')}":
-                                            f"{fmt_huf(cat['min_per_sqm'])} → {fmt_huf(cat['max_per_sqm'])}",
-                                    })
-                                st.dataframe(cat_rows, use_container_width=True, hide_index=True)
+                                    cat_rows.append(
+                                        {
+                                            "Munkafázis"
+                                            if st.session_state.get("lang", "HU")
+                                            == "HU"
+                                            else "Work phase": cat["label_hu"]
+                                            if st.session_state.get("lang", "HU")
+                                            == "HU"
+                                            else cat["label_en"],
+                                            _("tab2.market_count"): cat["count"],
+                                            _(
+                                                "tab2.market_avg"
+                                            ): f"{fmt_huf(cat['avg_per_sqm'])} {_('tab2.market_unit')}",
+                                            _(
+                                                "tab2.market_median"
+                                            ): f"{fmt_huf(cat['median_per_sqm'])} {_('tab2.market_unit')}",
+                                            f"{_('tab2.market_min')} → {_('tab2.market_max')}": f"{fmt_huf(cat['min_per_sqm'])} → {fmt_huf(cat['max_per_sqm'])}",
+                                        }
+                                    )
+                                st.dataframe(
+                                    cat_rows, use_container_width=True, hide_index=True
+                                )
 
                                 st.markdown("---")
-                                st.markdown(f"**{_('tab2.market_your_estimate')}** ({area_sqm} m²)")
+                                st.markdown(
+                                    f"**{_('tab2.market_your_estimate')}** ({area_sqm} m²)"
+                                )
                                 s_cols = st.columns(3)
                                 s_cols[0].metric(
                                     _("tab2.market_scale_avg"),
@@ -991,13 +1100,16 @@ elif tab_selection == _("nav.tab2"):
                             vibe_en = vibe.get("explanation_en", "")
                             is_hu = st.session_state.get("lang", "HU") == "HU"
                             lang = st.session_state.get("lang", "HU")
-                            from renovai.safety.vibe_diff import VibeDiff, VibeDiffEngine
+                            from renovai.safety.vibe_diff import (
+                                VibeDiff,
+                                VibeDiffEngine,
+                            )
 
                             st.divider()
                             with st.expander(
                                 "💡 Költségindoklás (Vibe Diff)"
-                                if is_hu else
-                                "💡 Cost Explanation (Vibe Diff)",
+                                if is_hu
+                                else "💡 Cost Explanation (Vibe Diff)",
                                 expanded=vibe.get("total_exceeds_10m", False),
                             ):
                                 st.markdown(vibe_hu if is_hu else vibe_en)
@@ -1005,5 +1117,9 @@ elif tab_selection == _("nav.tab2"):
                 except Exception as exc:
                     logger.error("Renovation plan error", exc_info=True)
                     st.error(_("tab2.error"))
-                    with st.expander("🔧 Technikai részletek" if st.session_state.get("lang", "HU") == "HU" else "🔧 Technical Details"):
+                    with st.expander(
+                        "🔧 Technikai részletek"
+                        if st.session_state.get("lang", "HU") == "HU"
+                        else "🔧 Technical Details"
+                    ):
                         st.code(f"{type(exc).__name__}: {exc}", language="text")

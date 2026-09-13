@@ -1,15 +1,16 @@
 import logging
-import numpy as np
 from datetime import date
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from .feature_extractor import QuoteFeatures, ApartmentInput, extract_features
+from ..db.models import BuildingType, Quote
+from ..ingestion.inflation_calc import compound_inflation_factor, inflate_quote_value
 from ..ingestion.inflation_models import PriceIndex
-from ..ingestion.inflation_calc import inflate_quote_value, compound_inflation_factor
-from ..db.models import Quote, BuildingType
+from .feature_extractor import ApartmentInput, QuoteFeatures, extract_features
 
 logger = logging.getLogger(__name__)
 
@@ -155,9 +156,9 @@ def era_similarity(user_era: Optional[int], quote_era: Optional[int]) -> float:
 
 def building_similarity_weight(apt: ApartmentInput, quote: Quote) -> float:
     """Combined type × era similarity weight for a quote (multiplicative)."""
-    return building_type_similarity(apt.building_type, quote.building_type) * era_similarity(
-        apt.building_era, quote.building_era
-    )
+    return building_type_similarity(
+        apt.building_type, quote.building_type
+    ) * era_similarity(apt.building_era, quote.building_era)
 
 
 def _weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
@@ -200,8 +201,8 @@ def _get_user_scopes(apt: ApartmentInput) -> Set[str]:
 
 def _category_breakdown(quotes: List[Quote]) -> List[Dict[str, Any]]:
     """Aggregate per-category costs from DB quotes (same logic as load_cost_breakdown)."""
+    from ..predictor.cost_breakdown import CATEGORY_LABELS_EN, CATEGORY_LABELS_HU
     from .feature_extractor import CATEGORY_KEYWORDS
-    from ..predictor.cost_breakdown import CATEGORY_LABELS_HU, CATEGORY_LABELS_EN
 
     categories: Dict[str, List[int]] = {k: [] for k in CATEGORY_KEYWORDS}
 
@@ -221,16 +222,18 @@ def _category_breakdown(quotes: List[Quote]) -> List[Dict[str, Any]]:
         if not values:
             continue
         arr = np.array(values)
-        rows.append({
-            "category_key": key,
-            "category_hu": CATEGORY_LABELS_HU.get(key, key),
-            "category_en": CATEGORY_LABELS_EN.get(key, key),
-            "count": len(values),
-            "avg_huf": int(round(arr.mean())),
-            "median_huf": int(round(np.median(arr))),
-            "min_huf": int(arr.min()),
-            "max_huf": int(arr.max()),
-        })
+        rows.append(
+            {
+                "category_key": key,
+                "category_hu": CATEGORY_LABELS_HU.get(key, key),
+                "category_en": CATEGORY_LABELS_EN.get(key, key),
+                "count": len(values),
+                "avg_huf": int(round(arr.mean())),
+                "median_huf": int(round(np.median(arr))),
+                "min_huf": int(arr.min()),
+                "max_huf": int(arr.max()),
+            }
+        )
     rows.sort(key=lambda r: r["avg_huf"], reverse=True)
     return rows
 
@@ -352,11 +355,15 @@ async def scope_matched_estimate(
         f_blended = inflate_quote_value(1.0, quote_year, target_date, price_index)
         infl_factors.append(f_blended)
         for scope_name, cost_total in scope_line_total.items():
-            scope_entries[scope_name].append((
-                inflate_quote_value(cost_total / area, quote_year, target_date, price_index),
-                quote_year,
-                sim_weight,
-            ))
+            scope_entries[scope_name].append(
+                (
+                    inflate_quote_value(
+                        cost_total / area, quote_year, target_date, price_index
+                    ),
+                    quote_year,
+                    sim_weight,
+                )
+            )
 
     # 3 — Average per-sqm cost per scope using IVW × recency × building-similarity weighting.
     # IVW: weight_i = 1 / ((x_i - mean)^2 + eps)  — downweights outliers
@@ -396,7 +403,9 @@ async def scope_matched_estimate(
             similarity_weights = np.array(sims, dtype=float)
             combined = ivw_weights * recency_weights * similarity_weights
             scope_combined_weights[scope_name] = list(float(w) for w in combined)
-            scope_similarity_weights[scope_name] = list(float(w) for w in similarity_weights)
+            scope_similarity_weights[scope_name] = list(
+                float(w) for w in similarity_weights
+            )
             scope_avg_per_sqm[scope_name] = _weighted_mean(vals, combined)
             scope_fallback[scope_name] = False
         elif len(vals) == 1:
@@ -427,7 +436,9 @@ async def scope_matched_estimate(
     estimate_mid = max(estimate_mid, 500_000)
 
     # 4b — Monotonicity guard
-    monotonicity_warning = _check_monotonicity(apt_input, estimate_mid, scope_total_per_sqm)
+    monotonicity_warning = _check_monotonicity(
+        apt_input, estimate_mid, scope_total_per_sqm
+    )
 
     # 5 — Compute inflation factor range from per-quote blended factors
     # (inflation is already resolved in per-sqm values above; these stats are
@@ -495,14 +506,24 @@ async def scope_matched_estimate(
             "num_user_scopes": num_user_scopes,
             "contingency_huf": CONTINGENCY,
             "query_area_sqm": query_area,
-            "scope_avg_per_sqm_huf": {k: round(v, 0) for k, v in scope_avg_per_sqm.items()},
+            "scope_avg_per_sqm_huf": {
+                k: round(v, 0) for k, v in scope_avg_per_sqm.items()
+            },
             "scope_distinct_quote_count": scope_distinct_quotes,
             "scope_line_item_count": scope_line_items,
-            "scope_similarity_weight_min": round(min(
-                (w for ws in scope_similarity_weights.values() for w in ws), default=1.0
-            ), 3),
+            "scope_similarity_weight_min": round(
+                min(
+                    (w for ws in scope_similarity_weights.values() for w in ws),
+                    default=1.0,
+                ),
+                3,
+            ),
             "scope_total_per_sqm_huf": round(scope_total_per_sqm, 0),
-            "price_per_sqm_huf": round((CONTINGENCY + scope_total_per_sqm * query_area) / query_area, 0) if query_area > 0 else 0,
+            "price_per_sqm_huf": round(
+                (CONTINGENCY + scope_total_per_sqm * query_area) / query_area, 0
+            )
+            if query_area > 0
+            else 0,
         },
     }
     if include_breakdown:
@@ -532,12 +553,14 @@ def find_similar_quotes(
             f = extract_features(file)
             vec = np.array([getattr(f, col) for col in num_cols])
             dist = np.linalg.norm(target_vec - vec)
-            all_feats.append({
-                "file": file.name,
-                "address": f.district,
-                "grand_total_adjusted": f.grand_total_adjusted,
-                "distance": dist,
-            })
+            all_feats.append(
+                {
+                    "file": file.name,
+                    "address": f.district,
+                    "grand_total_adjusted": f.grand_total_adjusted,
+                    "distance": dist,
+                }
+            )
         except Exception:
             continue
 
@@ -557,8 +580,8 @@ def predict(
     Uses the per-category averages from load_cost_breakdown() instead of
     the old ML model.  The `model_dir` argument is accepted but ignored.
     """
-    from .cost_breakdown import load_cost_breakdown
     from ..api.config import AppConfig
+    from .cost_breakdown import load_cost_breakdown
 
     cfg = AppConfig()
     cost_data = load_cost_breakdown(Path(cfg.quotes_json_dir))
@@ -586,8 +609,12 @@ def predict(
     # Inflation — deprecated code path has no per-quote year; use today as baseline
     # (effectively no-op: this function is deprecated in favour of scope_matched_estimate())
     baseline_date = date.today()
-    f_labor = compound_inflation_factor(baseline_date.year, target_date, price_index, "labor")
-    f_material = compound_inflation_factor(baseline_date.year, target_date, price_index, "materials")
+    f_labor = compound_inflation_factor(
+        baseline_date.year, target_date, price_index, "labor"
+    )
+    f_material = compound_inflation_factor(
+        baseline_date.year, target_date, price_index, "materials"
+    )
     labor_share = 0.55
     total_adj = int(total * (labor_share * f_labor + (1.0 - labor_share) * f_material))
 

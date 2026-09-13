@@ -1,11 +1,12 @@
 import json
 import logging
-import numpy as np
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List
 
-from .feature_extractor import CATEGORY_KEYWORDS
+import numpy as np
+
 from ..ingestion.inflation_models import AdjustedQuote
+from .feature_extractor import CATEGORY_KEYWORDS
 
 logger = logging.getLogger(__name__)
 
@@ -85,16 +86,18 @@ def load_cost_breakdown(quotes_dir: Path) -> List[Dict[str, Any]]:
         if not values:
             continue
         arr = np.array(values)
-        rows.append({
-            "category_key": key,
-            "category_hu": CATEGORY_LABELS_HU.get(key, key),
-            "category_en": CATEGORY_LABELS_EN.get(key, key),
-            "count": len(values),
-            "avg_huf": int(round(arr.mean())),
-            "median_huf": int(round(np.median(arr))),
-            "min_huf": int(arr.min()),
-            "max_huf": int(arr.max()),
-        })
+        rows.append(
+            {
+                "category_key": key,
+                "category_hu": CATEGORY_LABELS_HU.get(key, key),
+                "category_en": CATEGORY_LABELS_EN.get(key, key),
+                "count": len(values),
+                "avg_huf": int(round(arr.mean())),
+                "median_huf": int(round(np.median(arr))),
+                "min_huf": int(arr.min()),
+                "max_huf": int(arr.max()),
+            }
+        )
 
     rows.sort(key=lambda r: r["avg_huf"], reverse=True)
     return rows

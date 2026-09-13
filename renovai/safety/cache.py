@@ -1,20 +1,18 @@
-import os
-import json
-import hashlib
 import logging
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
-from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
 
 class CacheTier(Enum):
     """Cache tiers for multi-level caching strategy."""
-    L1_MEMORY = "l1_memory"       # Hot cache: in-process dict
-    L2_DISKCACHE = "l2_diskcache" # Warm cache: diskcache.Disk
-    L3_NONE = "l3_none"           # Cache miss
+
+    L1_MEMORY = "l1_memory"  # Hot cache: in-process dict
+    L2_DISKCACHE = "l2_diskcache"  # Warm cache: diskcache.Disk
+    L3_NONE = "l3_none"  # Cache miss
 
 
 class RenovAICache:
@@ -42,8 +40,10 @@ class RenovAICache:
         self._tenant_id = tenant_id
         self._l1: dict[str, tuple[Any, float]] = {}  # key -> (value, expiry_ts)
         self._l1_max_size = l1_max_size
-        self._l2_cache_dir = Path(l2_cache_dir) if l2_cache_dir else (
-            Path(__file__).resolve().parent.parent.parent / "data" / "cache"
+        self._l2_cache_dir = (
+            Path(l2_cache_dir)
+            if l2_cache_dir
+            else (Path(__file__).resolve().parent.parent.parent / "data" / "cache")
         )
         self._l2_ttl_seconds = l2_ttl_seconds
         self._l2_initialized = False
@@ -65,7 +65,9 @@ class RenovAICache:
             return result
         return None
 
-    async def set_embedding(self, key: str, vector: list[float], ttl_seconds: int | None = None) -> None:
+    async def set_embedding(
+        self, key: str, vector: list[float], ttl_seconds: int | None = None
+    ) -> None:
         """Cache an embedding vector."""
         tenant_key = self._tenant_key(key)
         ttl = ttl_seconds or self._l2_ttl_seconds
@@ -84,7 +86,9 @@ class RenovAICache:
             return result
         return None
 
-    async def set_market_query(self, key: str, result: dict[str, Any], ttl_seconds: int | None = None) -> None:
+    async def set_market_query(
+        self, key: str, result: dict[str, Any], ttl_seconds: int | None = None
+    ) -> None:
         """Cache a market query result."""
         tenant_key = self._tenant_key(f"mq:{key}")
         ttl = ttl_seconds or self._l2_ttl_seconds
@@ -125,7 +129,11 @@ class RenovAICache:
         """Return the L1 cache hit rate."""
         if not self._l1:
             return 0.0
-        valid = sum(1 for v, expiry in self._l1.values() if expiry > datetime.now(timezone.utc).timestamp())
+        valid = sum(
+            1
+            for v, expiry in self._l1.values()
+            if expiry > datetime.now(timezone.utc).timestamp()
+        )
         return valid / len(self._l1)
 
     # ------------------------------------------------------------------
@@ -172,6 +180,7 @@ class RenovAICache:
         if self._l2 is None:
             try:
                 import diskcache
+
                 self._l2_cache_dir.mkdir(parents=True, exist_ok=True)
                 self._l2 = diskcache.Cache(str(self._l2_cache_dir))
                 self._l2_initialized = True

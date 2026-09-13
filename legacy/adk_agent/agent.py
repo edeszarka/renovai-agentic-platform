@@ -15,17 +15,22 @@ load_dotenv()
 if "GOOGLE_CLOUD_PROJECT" not in os.environ:
     try:
         import google.auth
+
         _, project_id = google.auth.default()
     except Exception:
         project_id = None
     if not project_id:
         try:
-            project_id = (
-                subprocess.check_output(
-                    [r"C:\Users\Edesz\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd", "config", "get", "project"],
-                    text=True, timeout=5,
-                ).strip()
-            )
+            project_id = subprocess.check_output(
+                [
+                    r"C:\Users\Edesz\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd",
+                    "config",
+                    "get",
+                    "project",
+                ],
+                text=True,
+                timeout=5,
+            ).strip()
         except Exception:
             project_id = "project-d065e38c-b25a-4843-973"
     os.environ["GOOGLE_CLOUD_PROJECT"] = project_id

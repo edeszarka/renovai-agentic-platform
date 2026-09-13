@@ -11,16 +11,20 @@ The call site now converts through apartment_input_to_features() first.
 This test drives the full handler end-to-end with realistic params and
 asserts a real (sane) result comes back, not just a non-exception.
 """
-import os
+
 import json
-from datetime import date
+import os
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from orchestrator.policy_service import PolicyCheckResult
-from renovai.predictor.feature_extractor import apartment_input_to_features, ApartmentInput
+from renovai.predictor.feature_extractor import (
+    ApartmentInput,
+    apartment_input_to_features,
+)
+
+pytestmark = pytest.mark.requires_local_corpus
 
 DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
@@ -34,7 +38,9 @@ class FakePolicyService:
             passed=True, reason="test-gate", trace_id="t", check_type="structural"
         )
 
-    def check_structural(self, role: str, action: str, trace_id: str) -> PolicyCheckResult:
+    def check_structural(
+        self, role: str, action: str, trace_id: str
+    ) -> PolicyCheckResult:
         return self._result
 
     async def check_semantic(self, args: dict, trace_id: str, **kwargs):
@@ -134,6 +140,7 @@ async def test_building_type_passed_through_to_apartment_input(monkeypatch):
 # Item H — district must not influence find_similar_quotes() ranking
 # ---------------------------------------------------------------------------
 
+
 def _write_quote(quotes_dir: Path, filename: str, district: int) -> Path:
     data = {
         "original_metadata": {
@@ -228,6 +235,7 @@ def test_district_does_not_change_similarity_ranking(similar_quotes_dir):
 # Part C — scope-category expansion tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_handle_cost_estimation_full_renovation_auto_enables_ac(caplog):
     """Full renovation scope must automatically set needs_ac."""
@@ -252,7 +260,10 @@ async def test_handle_cost_estimation_full_renovation_auto_enables_ac(caplog):
     # The estimate must be > a baseline 4-scope full renovation estimate.
     # Indirect check: re-run without AC and confirm the estimate is higher
     # when AC is auto-enabled.
-    ac_warn = any("needs_ac" in r.message and "no historical quotes" in r.message for r in caplog.records)
+    ac_warn = any(
+        "needs_ac" in r.message and "no historical quotes" in r.message
+        for r in caplog.records
+    )
     assert not ac_warn, "needs_ac should use real corpus, not fallback"
 
 
@@ -260,15 +271,22 @@ async def test_handle_cost_estimation_full_renovation_auto_enables_ac(caplog):
 async def test_ac_scope_uses_real_corpus_not_fallback():
     """With 22 real klima quotes, needs_ac must use corpus data, not min_premium."""
     from datetime import date
-    from renovai.predictor.price_model import scope_matched_estimate
-    from renovai.ingestion.inflation_calc import load_price_index
+
     from renovai.db.session import get_engine, get_session_maker
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.predictor.price_model import scope_matched_estimate
 
     apt = ApartmentInput(
-        district=5, total_area_sqm=55, num_rooms=2,
-        needs_plumbing=True, needs_electrical=True,
-        needs_flooring=True, needs_full_demolition=True,
-        needs_ac=True, needs_windows_doors=False, needs_insulation=False,
+        district=5,
+        total_area_sqm=55,
+        num_rooms=2,
+        needs_plumbing=True,
+        needs_electrical=True,
+        needs_flooring=True,
+        needs_full_demolition=True,
+        needs_ac=True,
+        needs_windows_doors=False,
+        needs_insulation=False,
     )
 
     pi = load_price_index(
@@ -299,15 +317,17 @@ async def test_windows_doors_insulation_fallback_warning(caplog):
     registry = FakeSkillRegistry()
 
     params = realistic_params(renovation_scope="partial")
-    params["scope_flags"].update({
-        "plumbing": True,
-        "electrical": True,
-        "flooring": True,
-        "demolition": True,
-        "windows_doors": True,
-        "insulation": True,
-        "ac": True,
-    })
+    params["scope_flags"].update(
+        {
+            "plumbing": True,
+            "electrical": True,
+            "flooring": True,
+            "demolition": True,
+            "windows_doors": True,
+            "insulation": True,
+            "ac": True,
+        }
+    )
     params["renovation_scope"] = "partial"
 
     with caplog.at_level("WARNING"):
@@ -342,8 +362,12 @@ def test_apartment_input_defaults():
 def test_apartment_input_explicit_scopes():
     """Setting the new flags and converting to features works."""
     apt = ApartmentInput(
-        district=1, total_area_sqm=55, num_rooms=2,
-        needs_windows_doors=True, needs_insulation=True, needs_ac=True,
+        district=1,
+        total_area_sqm=55,
+        num_rooms=2,
+        needs_windows_doors=True,
+        needs_insulation=True,
+        needs_ac=True,
     )
     feat = apartment_input_to_features(apt)
     assert feat.district == 1
@@ -354,6 +378,7 @@ def test_apartment_input_explicit_scopes():
 # ---------------------------------------------------------------------------
 # Item E — combined IVW × recency weighting tests
 # ---------------------------------------------------------------------------
+
 
 def test_single_year_recency_same_as_pure_ivw():
     """If all quotes are from the same year, recency weights are uniform (2×)
@@ -383,7 +408,9 @@ def test_multi_year_recency_shifts_toward_boost_year():
     toward the most recent year's value compared to pure IVW."""
     import numpy as np
 
-    vals = np.array([40000, 42000, 38000, 41000, 60000, 62000, 58000, 61000], dtype=float)
+    vals = np.array(
+        [40000, 42000, 38000, 41000, 60000, 62000, 58000, 61000], dtype=float
+    )
     years = [2023, 2023, 2023, 2023, 2026, 2026, 2026, 2026]
     _IVW_EPS = 1.0
 
@@ -414,14 +441,19 @@ async def test_recency_active_on_real_corpus():
     DB: most categories span 2023-2026, so boost_year != min year and the
     combined average should differ from pure IVW."""
     from datetime import date
-    from renovai.predictor.price_model import scope_matched_estimate
-    from renovai.ingestion.inflation_calc import load_price_index
+
     from renovai.db.session import get_engine, get_session_maker
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.predictor.price_model import scope_matched_estimate
 
     apt = ApartmentInput(
-        district=5, total_area_sqm=55, num_rooms=2,
-        needs_plumbing=True, needs_electrical=True,
-        needs_flooring=True, needs_full_demolition=True,
+        district=5,
+        total_area_sqm=55,
+        num_rooms=2,
+        needs_plumbing=True,
+        needs_electrical=True,
+        needs_flooring=True,
+        needs_full_demolition=True,
     )
 
     pi = load_price_index(
@@ -437,7 +469,12 @@ async def test_recency_active_on_real_corpus():
     # The estimate is non-trivial (>1M)
     assert est["estimate_mid_huf"] > 1_000_000
     # All 4 scopes have data
-    for sn in ("needs_plumbing", "needs_electrical", "needs_flooring", "needs_full_demolition"):
+    for sn in (
+        "needs_plumbing",
+        "needs_electrical",
+        "needs_flooring",
+        "needs_full_demolition",
+    ):
         assert est["debug"]["scope_distinct_quote_count"][sn] >= 2
     await eng.dispose()
 
@@ -446,13 +483,18 @@ async def test_recency_active_on_real_corpus():
 async def test_zero_quote_scopes_fallback_with_recency_in_place(caplog):
     """windows_doors and insulation still correctly fallback with recency weighting."""
     from datetime import date
-    from renovai.predictor.price_model import scope_matched_estimate
-    from renovai.ingestion.inflation_calc import load_price_index
+
     from renovai.db.session import get_engine, get_session_maker
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.predictor.price_model import scope_matched_estimate
 
     apt = ApartmentInput(
-        district=5, total_area_sqm=55, num_rooms=2,
-        needs_plumbing=True, needs_windows_doors=True, needs_insulation=True,
+        district=5,
+        total_area_sqm=55,
+        num_rooms=2,
+        needs_plumbing=True,
+        needs_windows_doors=True,
+        needs_insulation=True,
     )
 
     pi = load_price_index(
@@ -485,19 +527,27 @@ async def test_zero_quote_scopes_fallback_with_recency_in_place(caplog):
 # Item D — per-category return shape tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_categories_dict_covers_all_active_scopes():
     """Every active user scope has an entry in the categories dict."""
     from datetime import date
-    from renovai.predictor.price_model import scope_matched_estimate
-    from renovai.ingestion.inflation_calc import load_price_index
+
     from renovai.db.session import get_engine, get_session_maker
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.predictor.price_model import scope_matched_estimate
 
     apt = ApartmentInput(
-        district=5, total_area_sqm=55, num_rooms=2,
-        needs_plumbing=True, needs_electrical=True,
-        needs_flooring=True, needs_full_demolition=True,
-        needs_ac=True, needs_windows_doors=True, needs_insulation=True,
+        district=5,
+        total_area_sqm=55,
+        num_rooms=2,
+        needs_plumbing=True,
+        needs_electrical=True,
+        needs_flooring=True,
+        needs_full_demolition=True,
+        needs_ac=True,
+        needs_windows_doors=True,
+        needs_insulation=True,
     )
 
     pi = load_price_index(
@@ -512,9 +562,15 @@ async def test_categories_dict_covers_all_active_scopes():
     cats = est.get("categories", {})
     assert "categories" in est
 
-    user_scopes = {"needs_plumbing", "needs_electrical", "needs_flooring",
-                   "needs_full_demolition", "needs_windows_doors",
-                   "needs_insulation", "needs_ac"}
+    user_scopes = {
+        "needs_plumbing",
+        "needs_electrical",
+        "needs_flooring",
+        "needs_full_demolition",
+        "needs_windows_doors",
+        "needs_insulation",
+        "needs_ac",
+    }
     for sn in user_scopes:
         assert sn in cats, f"Missing {sn} from categories"
         c = cats[sn]
@@ -534,14 +590,19 @@ async def test_categories_dict_covers_all_active_scopes():
 async def test_categories_estimate_sums_roughly_to_total():
     """Per-category mid estimates should roughly sum to the total mid."""
     from datetime import date
-    from renovai.predictor.price_model import scope_matched_estimate
-    from renovai.ingestion.inflation_calc import load_price_index
+
     from renovai.db.session import get_engine, get_session_maker
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.predictor.price_model import scope_matched_estimate
 
     apt = ApartmentInput(
-        district=5, total_area_sqm=55, num_rooms=2,
-        needs_plumbing=True, needs_electrical=True,
-        needs_flooring=True, needs_full_demolition=True,
+        district=5,
+        total_area_sqm=55,
+        num_rooms=2,
+        needs_plumbing=True,
+        needs_electrical=True,
+        needs_flooring=True,
+        needs_full_demolition=True,
     )
 
     pi = load_price_index(
@@ -556,7 +617,12 @@ async def test_categories_estimate_sums_roughly_to_total():
 
     scope_total = sum(
         cats[sn]["estimate_huf"]["mid"]
-        for sn in ("needs_plumbing", "needs_electrical", "needs_flooring", "needs_full_demolition")
+        for sn in (
+            "needs_plumbing",
+            "needs_electrical",
+            "needs_flooring",
+            "needs_full_demolition",
+        )
     )
     expected_mid = est["estimate_mid_huf"] - 200_000  # contingency
     ratio = scope_total / expected_mid
@@ -571,14 +637,19 @@ async def test_categories_estimate_sums_roughly_to_total():
 async def test_data_quality_and_fallback_flags():
     """needs_ac -> sufficient, needs_windows_doors/insulation -> no_corpus_data."""
     from datetime import date
-    from renovai.predictor.price_model import scope_matched_estimate
-    from renovai.ingestion.inflation_calc import load_price_index
+
     from renovai.db.session import get_engine, get_session_maker
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.predictor.price_model import scope_matched_estimate
 
     apt = ApartmentInput(
-        district=5, total_area_sqm=55, num_rooms=2,
-        needs_plumbing=True, needs_ac=True,
-        needs_windows_doors=True, needs_insulation=True,
+        district=5,
+        total_area_sqm=55,
+        num_rooms=2,
+        needs_plumbing=True,
+        needs_ac=True,
+        needs_windows_doors=True,
+        needs_insulation=True,
     )
 
     pi = load_price_index(
@@ -612,12 +683,15 @@ async def test_data_quality_and_fallback_flags():
 async def test_include_breakdown_false_omits_categories():
     """When include_breakdown=False, categories key is absent."""
     from datetime import date
-    from renovai.predictor.price_model import scope_matched_estimate
-    from renovai.ingestion.inflation_calc import load_price_index
+
     from renovai.db.session import get_engine, get_session_maker
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.predictor.price_model import scope_matched_estimate
 
     apt = ApartmentInput(
-        district=5, total_area_sqm=55, num_rooms=2,
+        district=5,
+        total_area_sqm=55,
+        num_rooms=2,
         needs_plumbing=True,
     )
 
@@ -628,8 +702,9 @@ async def test_include_breakdown_false_omits_categories():
     eng = get_engine("sqlite+aiosqlite:///data/renovai.db")
     sm = get_session_maker(eng)
 
-    est = await scope_matched_estimate(apt, sm, pi, date.today(),
-                                       include_breakdown=False)
+    est = await scope_matched_estimate(
+        apt, sm, pi, date.today(), include_breakdown=False
+    )
     assert est is not None
     assert "categories" not in est
     assert "estimate_mid_huf" in est  # top-level still there
@@ -639,6 +714,7 @@ async def test_include_breakdown_false_omits_categories():
 # ---------------------------------------------------------------------------
 # Item G — Tab 2 corpus wiring tests
 # ---------------------------------------------------------------------------
+
 
 class _FakePolicy_:
     def check_structural(self, r, a, t):
@@ -658,13 +734,25 @@ async def test_construction_planning_has_data_source_on_all_phases():
     from orchestrator.handlers import handle_construction_planning
 
     params = {
-        "area_sqm": 55.0, "building_era": "1980", "renovation_scope": "full",
-        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
-        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
-                        "demolition": True, "ac": True},
+        "area_sqm": 55.0,
+        "building_era": "1980",
+        "renovation_scope": "full",
+        "gas_heating": False,
+        "floor_number": 1,
+        "elevator_type": "large",
+        "scope_flags": {
+            "plumbing": True,
+            "electrical": True,
+            "flooring": True,
+            "demolition": True,
+            "ac": True,
+        },
     }
     result = await handle_construction_planning(
-        params, _FakePolicy_(), _FakeRegistry_(), "t1",
+        params,
+        _FakePolicy_(),
+        _FakeRegistry_(),
+        "t1",
     )
     phases = result["data"]["phases"]
     for p in phases:
@@ -677,21 +765,41 @@ async def test_construction_planning_partial_different_confidence():
     from orchestrator.handlers import handle_construction_planning
 
     full_params = {
-        "area_sqm": 55.0, "building_era": "1980", "renovation_scope": "full",
-        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
-        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
-                        "demolition": True, "ac": True},
+        "area_sqm": 55.0,
+        "building_era": "1980",
+        "renovation_scope": "full",
+        "gas_heating": False,
+        "floor_number": 1,
+        "elevator_type": "large",
+        "scope_flags": {
+            "plumbing": True,
+            "electrical": True,
+            "flooring": True,
+            "demolition": True,
+            "ac": True,
+        },
     }
     partial_params = {
-        "area_sqm": 55.0, "building_era": "9999", "renovation_scope": "partial",
-        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
+        "area_sqm": 55.0,
+        "building_era": "9999",
+        "renovation_scope": "partial",
+        "gas_heating": False,
+        "floor_number": 1,
+        "elevator_type": "large",
         "scope_flags": {"plumbing": True, "plastering": True},
     }
 
-    full = await handle_construction_planning(full_params, _FakePolicy_(), _FakeRegistry_(), "t1")
-    partial = await handle_construction_planning(partial_params, _FakePolicy_(), _FakeRegistry_(), "t2")
+    full = await handle_construction_planning(
+        full_params, _FakePolicy_(), _FakeRegistry_(), "t1"
+    )
+    partial = await handle_construction_planning(
+        partial_params, _FakePolicy_(), _FakeRegistry_(), "t2"
+    )
 
-    assert full["data"]["confidence"]["reasoning"] != partial["data"]["confidence"]["reasoning"]
+    assert (
+        full["data"]["confidence"]["reasoning"]
+        != partial["data"]["confidence"]["reasoning"]
+    )
     # Full should have corpus-derived confidence
     assert "corpus" in full["data"]["confidence"]["reasoning"].lower()
     assert full["data"]["confidence"]["score"] != partial["data"]["confidence"]["score"]
@@ -702,12 +810,24 @@ async def test_windows_doors_insulation_fallback_values_similar_to_old_hardcoded
     from orchestrator.handlers import handle_construction_planning
 
     params = {
-        "area_sqm": 55.0, "building_era": "1980", "renovation_scope": "full",
-        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
-        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
-                        "demolition": True, "windows_doors": True, "insulation": True},
+        "area_sqm": 55.0,
+        "building_era": "1980",
+        "renovation_scope": "full",
+        "gas_heating": False,
+        "floor_number": 1,
+        "elevator_type": "large",
+        "scope_flags": {
+            "plumbing": True,
+            "electrical": True,
+            "flooring": True,
+            "demolition": True,
+            "windows_doors": True,
+            "insulation": True,
+        },
     }
-    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t3")
+    result = await handle_construction_planning(
+        params, _FakePolicy_(), _FakeRegistry_(), "t3"
+    )
     phases = {p["name"]: p for p in result["data"]["phases"]}
 
     # Windows/doors should be hardcoded_2025 (unit-based) with reasonable costs
@@ -715,8 +835,10 @@ async def test_windows_doors_insulation_fallback_values_similar_to_old_hardcoded
     assert wd is not None
     assert wd["data_source"] == "hardcoded_2025"
     # Old unit-based: 200k-400k per unit * 3 units = 600k-1.2M material
-    ml, mh = map(lambda x: int(x.replace(",", "").replace(" Ft", "")),
-                 wd["material_cost_range"].split(" - "))
+    ml, mh = map(
+        lambda x: int(x.replace(",", "").replace(" Ft", "")),
+        wd["material_cost_range"].split(" - "),
+    )
     assert 500_000 < ml < 700_000  # ~600k for 3 units
 
     ins = phases.get("Szigetelés (Insulation)")
@@ -729,12 +851,22 @@ async def test_vibe_diff_infra_numbers_match_actual_deltas():
     from orchestrator.handlers import handle_construction_planning
 
     params = {
-        "area_sqm": 42.0, "building_era": "2005", "renovation_scope": "full",
-        "gas_heating": True, "floor_number": 1, "elevator_type": "small",
-        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
-                        "demolition": True},
+        "area_sqm": 42.0,
+        "building_era": "2005",
+        "renovation_scope": "full",
+        "gas_heating": True,
+        "floor_number": 1,
+        "elevator_type": "small",
+        "scope_flags": {
+            "plumbing": True,
+            "electrical": True,
+            "flooring": True,
+            "demolition": True,
+        },
     }
-    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t4")
+    result = await handle_construction_planning(
+        params, _FakePolicy_(), _FakeRegistry_(), "t4"
+    )
     data = result["data"]
 
     # vibe_diff hidden chains exist
@@ -753,14 +885,20 @@ async def test_vibe_diff_infra_numbers_match_actual_deltas():
 async def test_rough_in_aggregates_all_three_categories():
     """The MEP phase must sum plumbing + electrical + AC from the categories dict."""
     from datetime import date
-    from renovai.predictor.price_model import scope_matched_estimate
-    from renovai.ingestion.inflation_calc import load_price_index
+
     from renovai.db.session import get_engine, get_session_maker
+    from renovai.ingestion.inflation_calc import load_price_index
+    from renovai.predictor.price_model import scope_matched_estimate
 
     apt = ApartmentInput(
-        district=5, total_area_sqm=55, num_rooms=2,
-        needs_plumbing=True, needs_electrical=True, needs_ac=True,
-        needs_flooring=False, needs_full_demolition=False,
+        district=5,
+        total_area_sqm=55,
+        num_rooms=2,
+        needs_plumbing=True,
+        needs_electrical=True,
+        needs_ac=True,
+        needs_flooring=False,
+        needs_full_demolition=False,
     )
     pi = load_price_index(
         DATA_ROOT / "raw" / "inflation" / "materials_cpi.csv",
@@ -781,31 +919,50 @@ async def test_rough_in_aggregates_all_three_categories():
     from orchestrator.handlers import handle_construction_planning
 
     params = {
-        "area_sqm": 55.0, "building_era": "2005", "renovation_scope": "partial",
-        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
-        "scope_flags": {"plumbing": True, "electrical": True, "ac": True,
-                        "demolition": False, "flooring": False, "plastering": False,
-                        "painting": False},
+        "area_sqm": 55.0,
+        "building_era": "2005",
+        "renovation_scope": "partial",
+        "gas_heating": False,
+        "floor_number": 1,
+        "elevator_type": "large",
+        "scope_flags": {
+            "plumbing": True,
+            "electrical": True,
+            "ac": True,
+            "demolition": False,
+            "flooring": False,
+            "plastering": False,
+            "painting": False,
+        },
     }
-    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t5")
+    result = await handle_construction_planning(
+        params, _FakePolicy_(), _FakeRegistry_(), "t5"
+    )
     phases = {p["name"]: p for p in result["data"]["phases"]}
 
     rough_in = phases.get("Gépészet (Plumbing, Electrical, HVAC)")
     assert rough_in is not None
 
     def mid_from_range(mr, lr):
-        m_lo, m_hi = [int(x.replace(",","").replace(" Ft","")) for x in mr.split(" - ")]
-        l_lo, l_hi = [int(x.replace(",","").replace(" Ft","")) for x in lr.split(" - ")
-                      if "0 Ft" not in x]
+        m_lo, m_hi = [
+            int(x.replace(",", "").replace(" Ft", "")) for x in mr.split(" - ")
+        ]
+        l_lo, l_hi = [
+            int(x.replace(",", "").replace(" Ft", ""))
+            for x in lr.split(" - ")
+            if "0 Ft" not in x
+        ]
         return (m_lo + m_hi + l_lo + l_hi) // 2 if l_lo and l_hi else (m_lo + m_hi) // 2
 
-    rough_mid = mid_from_range(rough_in["material_cost_range"], rough_in["labor_cost_range"])
+    rough_mid = mid_from_range(
+        rough_in["material_cost_range"], rough_in["labor_cost_range"]
+    )
 
     # The rough-in mid should be close to the sum of the 3 category mids
     # (within rounding and 55/45 split approximation)
     assert 0.85 * expected_sum <= rough_mid <= 1.15 * expected_sum, (
         f"rough-in mid={rough_mid:,}, expected ~{expected_sum:,} "
-        f"(ratio={rough_mid/expected_sum:.3f})"
+        f"(ratio={rough_mid / expected_sum:.3f})"
     )
     await eng.dispose()
 
@@ -816,12 +973,23 @@ async def test_windows_doors_stays_unit_based_not_fallback():
     from orchestrator.handlers import handle_construction_planning
 
     params = {
-        "area_sqm": 55.0, "building_era": "2005", "renovation_scope": "partial",
-        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
-        "scope_flags": {"windows_doors": True, "demolition": False, "flooring": False,
-                        "plumbing": False, "electrical": False},
+        "area_sqm": 55.0,
+        "building_era": "2005",
+        "renovation_scope": "partial",
+        "gas_heating": False,
+        "floor_number": 1,
+        "elevator_type": "large",
+        "scope_flags": {
+            "windows_doors": True,
+            "demolition": False,
+            "flooring": False,
+            "plumbing": False,
+            "electrical": False,
+        },
     }
-    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t6")
+    result = await handle_construction_planning(
+        params, _FakePolicy_(), _FakeRegistry_(), "t6"
+    )
     phases = {p["name"]: p for p in result["data"]["phases"]}
 
     wd = phases.get("Nyílászáró csere (Windows & Doors)")
@@ -835,15 +1003,24 @@ async def test_windows_doors_stays_unit_based_not_fallback():
 # Owner-purchased (tulajdonosi beszerzés) product pricing wiring (doc 04)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_owner_purchased_items_add_phase_to_construction_planning():
     from orchestrator.handlers import handle_construction_planning
 
     params = {
-        "area_sqm": 55.0, "building_era": "1980", "renovation_scope": "full",
-        "gas_heating": False, "floor_number": 1, "elevator_type": "large",
-        "scope_flags": {"plumbing": True, "electrical": True, "flooring": True,
-                        "demolition": True},
+        "area_sqm": 55.0,
+        "building_era": "1980",
+        "renovation_scope": "full",
+        "gas_heating": False,
+        "floor_number": 1,
+        "elevator_type": "large",
+        "scope_flags": {
+            "plumbing": True,
+            "electrical": True,
+            "flooring": True,
+            "demolition": True,
+        },
         "owner_purchased": {
             "tier": "kozep_kozep",
             "tiles_sqm": 45,
@@ -851,7 +1028,9 @@ async def test_owner_purchased_items_add_phase_to_construction_planning():
             "appliances": ["hob_fozolap", "oven_suto"],
         },
     }
-    result = await handle_construction_planning(params, _FakePolicy_(), _FakeRegistry_(), "t7")
+    result = await handle_construction_planning(
+        params, _FakePolicy_(), _FakeRegistry_(), "t7"
+    )
     assert result["status"] == "ok", f"handler errored: {result.get('error')}"
     phases = {p["name"]: p for p in result["data"]["phases"]}
 
@@ -867,9 +1046,14 @@ async def test_owner_purchased_items_add_phase_to_construction_planning():
     # Estimate must be strictly higher with owner-purchased items.
     base = await handle_construction_planning(
         {k: v for k, v in params.items() if k != "owner_purchased"},
-        _FakePolicy_(), _FakeRegistry_(), "t8",
+        _FakePolicy_(),
+        _FakeRegistry_(),
+        "t8",
     )
-    assert result["data"]["total_estimate"]["mid_huf"] > base["data"]["total_estimate"]["mid_huf"]
+    assert (
+        result["data"]["total_estimate"]["mid_huf"]
+        > base["data"]["total_estimate"]["mid_huf"]
+    )
 
 
 @pytest.mark.asyncio
@@ -885,8 +1069,10 @@ async def test_owner_purchased_items_reflected_in_cost_estimation():
         }
     )
     result = await handle_cost_estimation(
-        params, policy_service=FakePolicyService(),
-        skill_registry=FakeSkillRegistry(), trace_id="t9",
+        params,
+        policy_service=FakePolicyService(),
+        skill_registry=FakeSkillRegistry(),
+        trace_id="t9",
     )
     assert result["status"] == "ok", f"handler errored: {result.get('error')}"
     data = result["data"]
@@ -898,6 +1084,7 @@ async def test_owner_purchased_items_reflected_in_cost_estimation():
 
 def test_build_owner_purchased_items_returns_zero_without_spec():
     from orchestrator.handlers import _build_owner_purchased_items
+
     res, details, warnings = _build_owner_purchased_items({"area_sqm": 55})
     assert res == {"low_huf": 0, "mid_huf": 0, "high_huf": 0}
     assert details == []
