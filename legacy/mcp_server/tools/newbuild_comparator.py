@@ -110,7 +110,11 @@ def calculate_buy_vs_new(
     """
     total_cost = asking_price_huf + renovation_estimate_huf
     diff_huf = total_cost - newbuild_median_huf
-    diff_pct = round((diff_huf / newbuild_median_huf) * 100, 1) if newbuild_median_huf > 0 else 0
+    diff_pct = (
+        round((diff_huf / newbuild_median_huf) * 100, 1)
+        if newbuild_median_huf > 0
+        else 0
+    )
 
     if diff_pct < -15:
         verdict = "Olcsóbb, mint egy új lakás!"
@@ -127,6 +131,8 @@ def calculate_buy_vs_new(
         "difference_huf": diff_huf,
         "difference_pct": diff_pct,
         "cost_per_sqm_existing": int(total_cost / area_sqm) if area_sqm > 0 else 0,
-        "cost_per_sqm_newbuild": int(newbuild_median_huf / area_sqm) if area_sqm > 0 else 0,
+        "cost_per_sqm_newbuild": int(newbuild_median_huf / area_sqm)
+        if area_sqm > 0
+        else 0,
         "verdict": verdict,
     }

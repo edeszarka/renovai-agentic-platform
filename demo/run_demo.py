@@ -13,11 +13,11 @@ Requirements:
     - mcp package installed (uv sync)
 """
 
-import sys
 import json
-import subprocess
-import time
 import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -46,7 +46,12 @@ class MCPClient:
         self._proc: subprocess.Popen | None = None
 
     def __enter__(self):
-        server_path = str(Path(__file__).resolve().parent.parent / "legacy" / "mcp_server" / "server.py")
+        server_path = str(
+            Path(__file__).resolve().parent.parent
+            / "legacy"
+            / "mcp_server"
+            / "server.py"
+        )
         self._proc = subprocess.Popen(
             [sys.executable, server_path],
             stdin=subprocess.PIPE,
@@ -72,16 +77,21 @@ class MCPClient:
         self._proc.stdin.flush()
         response = json.loads(_recv_line(self._proc.stdout))
         if "error" in response:
-            raise RuntimeError(f"MCP error ({response['error']['code']}): {response['error']['message']}")
+            raise RuntimeError(
+                f"MCP error ({response['error']['code']}): {response['error']['message']}"
+            )
         return response["result"]
 
     def _init_handshake(self):
         time.sleep(0.5)
-        self._send("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "renovai-demo", "version": "1.0"},
-        })
+        self._send(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "renovai-demo", "version": "1.0"},
+            },
+        )
 
     def list_tools(self) -> list[dict]:
         result = self._send("tools/list")
@@ -103,7 +113,9 @@ def main():
 
     api_key = os.getenv("GOOGLE_API_KEY", "")
     if not api_key:
-        print("\nWARNING: GOOGLE_API_KEY not set. Tools that require Gemini will fail.\n")
+        print(
+            "\nWARNING: GOOGLE_API_KEY not set. Tools that require Gemini will fail.\n"
+        )
 
     with MCPClient() as mcp:
         tools = mcp.list_tools()
@@ -117,9 +129,15 @@ def main():
         print('         villany és vízvezeték is kell, mennyit költsek felújításra?"')
         print("─" * 70)
         print("\n[1/3] Calling estimate_renovation_cost...")
-        cost_result = mcp.call_tool("estimate_renovation_cost", {
-            "district": 8, "area_sqm": 55, "num_rooms": 2, "scope": ["villany", "viz_futes"],
-        })
+        cost_result = mcp.call_tool(
+            "estimate_renovation_cost",
+            {
+                "district": 8,
+                "area_sqm": 55,
+                "num_rooms": 2,
+                "scope": ["villany", "viz_futes"],
+            },
+        )
         if "error" in cost_result:
             print(f"  ERROR: {cost_result['error']}")
         else:
@@ -133,34 +151,51 @@ def main():
 
         # ── Query 1b: Due diligence advice ──
         print("\n[2/3] Calling get_due_diligence_advice...")
-        dd_result = mcp.call_tool("get_due_diligence_advice", {
-            "district": 8, "area_sqm": 55, "building_type": "tegla",
-            "condition": "kozepes", "known_issues": ["kohosalak", "nedvesedes"],
-        })
+        dd_result = mcp.call_tool(
+            "get_due_diligence_advice",
+            {
+                "district": 8,
+                "area_sqm": 55,
+                "building_type": "tegla",
+                "condition": "kozepes",
+                "known_issues": ["kohosalak", "nedvesedes"],
+            },
+        )
         if "error" in dd_result:
             print(f"  ERROR: {dd_result['error']}")
         else:
             print(f"  Overall risk: {dd_result.get('overall_risk', 'N/A')}")
-            print(f"  Questions for seller: {len(dd_result.get('questions_for_seller', []))}")
-            print(f"  Inspection checklist: {len(dd_result.get('inspection_checklist', []))}")
+            print(
+                f"  Questions for seller: {len(dd_result.get('questions_for_seller', []))}"
+            )
+            print(
+                f"  Inspection checklist: {len(dd_result.get('inspection_checklist', []))}"
+            )
             print(f"  Red flags: {len(dd_result.get('red_flags', []))}")
             print(f"  Sources cited: {len(dd_result.get('sources_cited', []))}")
 
         # ── Query 2: Market data query ──
         print("\n" + "─" * 70)
-        print('QUERY 2: "Mennyibe került átlagosan a villanyszerelés a 2023-as arakban?"')
+        print(
+            'QUERY 2: "Mennyibe került átlagosan a villanyszerelés a 2023-as arakban?"'
+        )
         print("─" * 70)
         print("\n[3/3] Calling query_renovation_market...")
-        market_result = mcp.call_tool("query_renovation_market", {
-            "question_hu": "Mennyibe került átlagosan a villanyszerelés a 2023-as arakban?",
-        })
+        market_result = mcp.call_tool(
+            "query_renovation_market",
+            {
+                "question_hu": "Mennyibe került átlagosan a villanyszerelés a 2023-as arakban?",
+            },
+        )
         if "error" in market_result:
             print(f"  ERROR: {market_result['error']}")
         else:
             print(f"  SQL: {market_result.get('sql', 'N/A')}")
             print(f"  Rows returned: {market_result.get('row_count', 0)}")
             if market_result.get("rows"):
-                print(f"  First row: {json.dumps(market_result['rows'][0], ensure_ascii=False)}")
+                print(
+                    f"  First row: {json.dumps(market_result['rows'][0], ensure_ascii=False)}"
+                )
 
     print("\n" + "=" * 70)
     print("Demo complete.")

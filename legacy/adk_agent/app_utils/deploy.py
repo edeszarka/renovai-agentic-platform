@@ -24,7 +24,6 @@ the Vertex AI SDK. Intended to be called by CI/CD or directly:
 import argparse
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -33,11 +32,16 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 def export_requirements():
     """Export locked requirements from uv lockfile, stripping comments and editable installs."""
-    raw_path = PROJECT_DIR / "legacy" / "adk_agent" / "app_utils" / ".requirements-raw.txt"
-    clean_path = PROJECT_DIR / "legacy" / "adk_agent" / "app_utils" / ".requirements.txt"
+    raw_path = (
+        PROJECT_DIR / "legacy" / "adk_agent" / "app_utils" / ".requirements-raw.txt"
+    )
+    clean_path = (
+        PROJECT_DIR / "legacy" / "adk_agent" / "app_utils" / ".requirements.txt"
+    )
     subprocess.run(
         ["uv", "export", "--no-dev", "--no-hashes", "-o", str(raw_path)],
-        check=True, cwd=str(PROJECT_DIR),
+        check=True,
+        cwd=str(PROJECT_DIR),
     )
     lines = raw_path.read_text(encoding="utf-8").splitlines()
     clean = []
@@ -87,6 +91,7 @@ def deploy(args: argparse.Namespace):
     )
 
     from legacy.adk_agent.agent_runtime_app import _build_agent_runtime
+
     local_agent = _build_agent_runtime()
 
     env_vars = {
@@ -130,12 +135,18 @@ def deploy(args: argparse.Namespace):
         resource_name = engine.resource_name
         print(f"Created engine: {resource_name}")
         with open(metadata_path, "w") as f:
-            json.dump({
-                "remote_agent_runtime_id": resource_name,
-                "deployment_target": "agent_runtime",
-                "is_a2a": False,
-                "deployment_timestamp": str(engine.create_time) if hasattr(engine, "create_time") else "",
-            }, f, indent=2)
+            json.dump(
+                {
+                    "remote_agent_runtime_id": resource_name,
+                    "deployment_target": "agent_runtime",
+                    "is_a2a": False,
+                    "deployment_timestamp": str(engine.create_time)
+                    if hasattr(engine, "create_time")
+                    else "",
+                },
+                f,
+                indent=2,
+            )
 
 
 if __name__ == "__main__":
@@ -143,12 +154,19 @@ if __name__ == "__main__":
     parser.add_argument("--project", required=True)
     parser.add_argument("--region", default="us-central1")
     parser.add_argument("--name", default="renovai-capstone")
-    parser.add_argument("--staging-bucket", default="gs://renovai-agent-runtime-staging")
+    parser.add_argument(
+        "--staging-bucket", default="gs://renovai-agent-runtime-staging"
+    )
     parser.add_argument("--cpu", default="4")
     parser.add_argument("--memory", default="8Gi")
     parser.add_argument("--min-instances", type=int, default=1)
     parser.add_argument("--max-instances", type=int, default=1)
     parser.add_argument("--concurrency", type=int, default=8)
-    parser.add_argument("--dry-run", "-n", action="store_true", help="Validate configuration without deploying")
+    parser.add_argument(
+        "--dry-run",
+        "-n",
+        action="store_true",
+        help="Validate configuration without deploying",
+    )
     args = parser.parse_args()
     deploy(args)

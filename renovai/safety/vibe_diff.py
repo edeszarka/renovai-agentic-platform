@@ -1,8 +1,8 @@
-import os
 import json
-import uuid
 import logging
-from dataclasses import dataclass, field
+import os
+import uuid
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -18,10 +18,10 @@ class VibeDiff:
 
     vibe_id: str
     trace_id: str
-    source: str                 # "due_diligence" | "cost_estimator"
-    explanation_hu: str         # Hungarian explanation of reasoning
-    explanation_en: str         # English fallback for internal review
-    key_drivers: list[str]      # Bullet-point list of what drove the delta
+    source: str  # "due_diligence" | "cost_estimator"
+    explanation_hu: str  # Hungarian explanation of reasoning
+    explanation_en: str  # English fallback for internal review
+    key_drivers: list[str]  # Bullet-point list of what drove the delta
     before_snapshot: dict[str, Any]
     after_snapshot: dict[str, Any]
     model: str = "gemini-2.0-flash-lite"

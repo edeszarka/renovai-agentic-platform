@@ -1,21 +1,29 @@
 """Tests for the owner-purchased product pricing catalog (doc 04)."""
+
 import pytest
 
 from renovai.predictor.product_pricing import (
+    APPLIANCE_NAMES,
     APPLIANCE_PRICES,
     SANITARY_PRICES,
     TIERS,
-    normalize_tier,
-    lookup,
     door_install,
+    lookup,
+    normalize_tier,
     xps_underlay,
-    APPLIANCE_NAMES,
 )
 
 
 class TestTierNormalization:
     def test_ascii_keys(self):
-        assert TIERS == ["also", "also_kozep", "kozep_kozep", "felso_kozep", "premium", "luxus"]
+        assert TIERS == [
+            "also",
+            "also_kozep",
+            "kozep_kozep",
+            "felso_kozep",
+            "premium",
+            "luxus",
+        ]
 
     def test_accented_hungarian_labels(self):
         assert normalize_tier("Alsó") == "also"
@@ -56,10 +64,14 @@ class TestTileLookup:
 class TestApplianceLookup:
     def test_dishwasher_kozep_kozep(self):
         # doc 04 §8: mosogatógép közép közép = 120-140 e Ft
-        assert lookup("appliance", "kozep_kozep", appliance="dishwasher_mosogatogep") == (120_000, 140_000)
+        assert lookup(
+            "appliance", "kozep_kozep", appliance="dishwasher_mosogatogep"
+        ) == (120_000, 140_000)
 
     def test_range_hood_felso_kozep(self):
-        assert lookup("appliance", "felso_kozep", appliance="range_hood_szagelszivo") == (40_000, 55_000)
+        assert lookup(
+            "appliance", "felso_kozep", appliance="range_hood_szagelszivo"
+        ) == (40_000, 55_000)
 
     def test_all_appliances_have_all_tiers(self):
         for app in APPLIANCE_NAMES:
@@ -81,7 +93,9 @@ class TestSanitaryLookup:
 
 class TestDoorLookup:
     def test_kulso_zsaneros_with_glass(self):
-        assert lookup("door", "also", door_type="kulso_zsaneros_1m", glass="with_glass") == (130_000, 180_000)
+        assert lookup(
+            "door", "also", door_type="kulso_zsaneros_1m", glass="with_glass"
+        ) == (130_000, 180_000)
 
     def test_install(self):
         assert door_install("kulso_zsaneros_1m", "with_glass") == (25_000, 30_000)

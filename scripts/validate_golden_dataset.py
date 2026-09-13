@@ -33,15 +33,15 @@ import argparse
 import json
 from pathlib import Path
 
+from renovai.predictor.product_pricing import (
+    LAMINATE_PRICES,
+    door_install,
+    lookup,
+)
 from renovai.predictor.structural_cost import (
     ceiling_height_multiplier,
-    detect_active_chains,
     chain_total_cost,
-)
-from renovai.predictor.product_pricing import (
-    lookup,
-    door_install,
-    LAMINATE_PRICES,
+    detect_active_chains,
 )
 
 GOLDEN_JSON = Path("renovai/evals/golden_dataset.json")
@@ -58,6 +58,7 @@ def _load_cases() -> list[dict]:
 # Case-specific checkers.  Each returns (rubric_bullet, ok|fail, detail).
 # ---------------------------------------------------------------------------
 
+
 def check_008(case: dict) -> list[dict]:
     """ajto_padlo_lanc_pre1970_008 — pre-1970 tégla + door/floor triggers the
     full-slag chain. The rubric pins the chain to 2.0-2.85M point 2.425M at the
@@ -66,7 +67,9 @@ def check_008(case: dict) -> list[dict]:
     scope = {k: bool(v) for k, v in p.get("scope_flags", {}).items()}
     era = str(p.get("building_era", ""))
     btype = p.get("building_type")
-    active = detect_active_chains(scope, era, floor_number=1, gas_heating=False, building_type=btype)
+    active = detect_active_chains(
+        scope, era, floor_number=1, gas_heating=False, building_type=btype
+    )
     ids = [c["id"] for c in active]
     cost_ref = chain_total_cost(active, area_sqm=REF_AREA)["point"]
     cost_case = chain_total_cost(active, area_sqm=float(p.get("area_sqm", 55)))["point"]
@@ -128,20 +131,28 @@ def check_003(case: dict) -> list[dict]:
     }
     for name, cfg in sub.items():
         active = detect_active_chains(
-            cfg["scope"], cfg["era"], floor_number=1, gas_heating=False, building_type=cfg["btype"],
+            cfg["scope"],
+            cfg["era"],
+            floor_number=1,
+            gas_heating=False,
+            building_type=cfg["btype"],
         )
         ids = [c["id"] for c in active]
         cost = chain_total_cost(active, area_sqm=REF_AREA)["point"]
-        bullets.append({
-            "bullet": f"{name}: chain_active == {cfg['chain']}",
-            "ok": cfg["chain"] in ids,
-            "detail": f"active={ids} (branch {'A' if cfg['chain']=='ajto_padlo_lanc' else 'B/C'})",
-        })
-        bullets.append({
-            "bullet": f"{name}: chain cost {cfg['lo']/1e6:.2f}-{cfg['hi']/1e6:.2f}M at {REF_AREA:.0f} m² ({cfg['src']})",
-            "ok": cfg["lo"] <= cost <= cfg["hi"],
-            "detail": f"point@{REF_AREA:.0f}m²={cost:,}",
-        })
+        bullets.append(
+            {
+                "bullet": f"{name}: chain_active == {cfg['chain']}",
+                "ok": cfg["chain"] in ids,
+                "detail": f"active={ids} (branch {'A' if cfg['chain'] == 'ajto_padlo_lanc' else 'B/C'})",
+            }
+        )
+        bullets.append(
+            {
+                "bullet": f"{name}: chain cost {cfg['lo'] / 1e6:.2f}-{cfg['hi'] / 1e6:.2f}M at {REF_AREA:.0f} m² ({cfg['src']})",
+                "ok": cfg["lo"] <= cost <= cfg["hi"],
+                "detail": f"point@{REF_AREA:.0f}m²={cost:,}",
+            }
+        )
     return bullets
 
 
@@ -179,11 +190,20 @@ def check_018(case: dict) -> list[dict]:
     table = {
         "exterior_hinged_1m": ("kulso_zsaneros_1m", exp["exterior_hinged_1m"]),
         "interior_hinged_2m": ("belso_zsaneros_2m", exp["interior_hinged_2m"]),
-        "single_leaf_sliding_1m": ("egyszarnyu_toloajto_1m", exp["single_leaf_sliding_1m"]),
-        "double_leaf_sliding_2m": ("ketszarnyu_toloajto_2m", exp["double_leaf_sliding_2m"]),
+        "single_leaf_sliding_1m": (
+            "egyszarnyu_toloajto_1m",
+            exp["single_leaf_sliding_1m"],
+        ),
+        "double_leaf_sliding_2m": (
+            "ketszarnyu_toloajto_2m",
+            exp["double_leaf_sliding_2m"],
+        ),
     }
     for name, (dkey, e) in table.items():
-        d, i = lookup("door", "also", door_type=dkey, glass="without_glass"), door_install(dkey, "without_glass")
+        d, i = (
+            lookup("door", "also", door_type=dkey, glass="without_glass"),
+            door_install(dkey, "without_glass"),
+        )
         gd = lookup("door", "also", door_type=dkey, glass="with_glass")
         gi = door_install(dkey, "with_glass")
         ok = (
@@ -192,11 +212,13 @@ def check_018(case: dict) -> list[dict]:
             and gd == (e["with_glass_door_huf_min"], e["with_glass_door_huf_max"])
             and gi == (e["with_glass_install_huf_min"], e["with_glass_install_huf_max"])
         )
-        bullets.append({
-            "bullet": f"must_return_exact_{name}_ranges",
-            "ok": ok,
-            "detail": f"{dkey} catalog matches doc-04 golden figures",
-        })
+        bullets.append(
+            {
+                "bullet": f"must_return_exact_{name}_ranges",
+                "ok": ok,
+                "detail": f"{dkey} catalog matches doc-04 golden figures",
+            }
+        )
     return bullets
 
 
@@ -214,7 +236,7 @@ def check_020(case: dict) -> list[dict]:
             "bullet": "install labor 5.5k-7.5k /sqm + adhesive 9k-14k (contractor)",
             "ok": False,
             "detail": "NOT-SCORABLE: install labor lives in pricing.md text only; "
-                      "no callable implements it in Tasks 1-3.",
+            "no callable implements it in Tasks 1-3.",
         },
     ]
     return bullets
@@ -229,14 +251,14 @@ def check_011(case: dict) -> list[dict]:
             "bullet": "case still flagged PENDING RECONCILIATION",
             "ok": pending,
             "detail": "note present, not silently resolved. Doc 04 tiered figures are "
-                      "canonical in product_pricing; appliance case uses doc 03 flat "
-                      "interim reference — NOT scored.",
+            "canonical in product_pricing; appliance case uses doc 03 flat "
+            "interim reference — NOT scored.",
         },
         {
             "bullet": "appliance figures match product_pricing tiers",
             "ok": False,
             "detail": "NOT-SCORABLE by design: doc03-vs-doc04 conflict stays pending; "
-                      "no single tier contains the doc 03 flat ranges.",
+            "no single tier contains the doc 03 flat ranges.",
         },
     ]
 
@@ -249,7 +271,7 @@ def check_generic(case: dict) -> list[dict]:
             "bullet": f"all {len(ruby)} rubric bullets machine-checkable",
             "ok": False,
             "detail": "NOT-SCORABLE: requires knowledge-base/prose answer not implemented "
-                      "as a callable in Tasks 1-3. Logged as not-scored, not as a pass/fail.",
+            "as a callable in Tasks 1-3. Logged as not-scored, not as a pass/fail.",
         },
     ]
 
@@ -296,21 +318,25 @@ def run_all() -> list[dict]:
                 # pending reconciliation: only the flag bullet is meaningful.
                 flag_ok = bullets[0]["ok"]
                 status = "PASS-FLAGGED" if flag_ok else "FAIL-FLAG-DROPPED"
-            results.append({
-                "case_id": cid,
-                "status": status,
-                "bullets": bullets,
-                "reason": "engine-mapped check",
-            })
+            results.append(
+                {
+                    "case_id": cid,
+                    "status": status,
+                    "bullets": bullets,
+                    "reason": "engine-mapped check",
+                }
+            )
             continue
         # Generic not-scoped case.
         bullets = check_generic(case)
-        results.append({
-            "case_id": cid,
-            "status": "NOT-SCORABLE",
-            "bullets": bullets,
-            "reason": KNOWN_NOT_SCOPED.get(cid, "no checker mapped"),
-        })
+        results.append(
+            {
+                "case_id": cid,
+                "status": "NOT-SCORABLE",
+                "bullets": bullets,
+                "reason": KNOWN_NOT_SCOPED.get(cid, "no checker mapped"),
+            }
+        )
     return results
 
 
@@ -340,8 +366,10 @@ def main() -> None:
         for r in results:
             if r["bullets"] and r["reason"] == "engine-mapped check":
                 for b in r["bullets"]:
-                    print(f"  [{r['case_id']}] {'PASS' if b['ok'] else 'FAIL'} "
-                          f"· {b['bullet']} · {b['detail']}")
+                    print(
+                        f"  [{r['case_id']}] {'PASS' if b['ok'] else 'FAIL'} "
+                        f"· {b['bullet']} · {b['detail']}"
+                    )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
-import uuid
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -24,10 +24,12 @@ class ApprovalRequest:
     proposed_response: dict[str, Any]
     vibe_diff: VibeDiff | None
     confidence_score: float
-    risk_level: str               # "low" | "medium" | "high" | "critical"
-    trigger_reason: str           # e.g. "confidence < 0.7" | "semantic_risk"
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    status: str = "pending"       # "pending" | "approved" | "rejected"
+    risk_level: str  # "low" | "medium" | "high" | "critical"
+    trigger_reason: str  # e.g. "confidence < 0.7" | "semantic_risk"
+    created_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    status: str = "pending"  # "pending" | "approved" | "rejected"
     reviewed_by: str | None = None
     reviewed_at: str | None = None
     reviewer_notes: str | None = None
@@ -54,6 +56,7 @@ class ApprovalRequest:
 @dataclass
 class InterventionDecision:
     """Structured output from the Green Team review gate."""
+
     needs_intervention: bool
     reason: str
     request: ApprovalRequest | None = None
@@ -143,7 +146,9 @@ class GreenTeamService:
 
         logger.info(
             "[%s] GREEN TEAM intervention triggered: %s (risk=%s)",
-            trace_id, trigger_reason, risk_level,
+            trace_id,
+            trigger_reason,
+            risk_level,
         )
 
         return InterventionDecision(
@@ -152,7 +157,9 @@ class GreenTeamService:
             request=request,
         )
 
-    def approve(self, request: ApprovalRequest, reviewer: str, notes: str | None = None) -> ApprovalRequest:
+    def approve(
+        self, request: ApprovalRequest, reviewer: str, notes: str | None = None
+    ) -> ApprovalRequest:
         """Record a human approval decision."""
         updated = ApprovalRequest(
             request_id=request.request_id,
@@ -171,11 +178,15 @@ class GreenTeamService:
             reviewer_notes=notes,
         )
         logger.info(
-            "[%s] GREEN TEAM approved by %s", request.trace_id, reviewer,
+            "[%s] GREEN TEAM approved by %s",
+            request.trace_id,
+            reviewer,
         )
         return updated
 
-    def reject(self, request: ApprovalRequest, reviewer: str, notes: str | None = None) -> ApprovalRequest:
+    def reject(
+        self, request: ApprovalRequest, reviewer: str, notes: str | None = None
+    ) -> ApprovalRequest:
         """Record a human rejection decision."""
         updated = ApprovalRequest(
             request_id=request.request_id,
@@ -194,7 +205,9 @@ class GreenTeamService:
             reviewer_notes=notes,
         )
         logger.info(
-            "[%s] GREEN TEAM rejected by %s", request.trace_id, reviewer,
+            "[%s] GREEN TEAM rejected by %s",
+            request.trace_id,
+            reviewer,
         )
         return updated
 

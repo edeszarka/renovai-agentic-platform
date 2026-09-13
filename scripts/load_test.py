@@ -10,13 +10,13 @@ Usage:
     python scripts/load_test.py --concurrency 20 --requests 100 --verbose
 """
 
-import os
-import sys
-import json
-import time
-import asyncio
 import argparse
+import asyncio
+import json
+import os
 import statistics
+import sys
+import time
 from datetime import datetime
 from typing import Any
 
@@ -29,19 +29,41 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # ---------------------------------------------------------------------------
 
 TEST_QUERIES: list[dict[str, Any]] = [
-    {"question_hu": "mennyibe kerül egy 55 nm-es panel lakás felújítása a 7. kerületben?", "expected_intent": "cost_estimation"},
-    {"question_hu": "mire figyeljek egy 1980-as években épült tégla lakás vásárlásánál?", "expected_intent": "due_diligence"},
-    {"question_hu": "átlagos felújítási költség nm ára Budapesten?", "expected_intent": "market_query"},
-    {"question_hu": "feltöltök egy árajánlatot excelből", "expected_intent": "ingestion"},
-    {"question_hu": "mennyi egy 70 nm-es lakás teljes felújítása villannyal, vízvezetékkel és burkolással?", "expected_intent": "cost_estimation"},
-    {"question_hu": "piros zászlók panel lakásnál, salak probléma", "expected_intent": "due_diligence"},
-    {"question_hu": "hány idézet van a rendszerben a 13. kerületre?", "expected_intent": "market_query"},
+    {
+        "question_hu": "mennyibe kerül egy 55 nm-es panel lakás felújítása a 7. kerületben?",
+        "expected_intent": "cost_estimation",
+    },
+    {
+        "question_hu": "mire figyeljek egy 1980-as években épült tégla lakás vásárlásánál?",
+        "expected_intent": "due_diligence",
+    },
+    {
+        "question_hu": "átlagos felújítási költség nm ára Budapesten?",
+        "expected_intent": "market_query",
+    },
+    {
+        "question_hu": "feltöltök egy árajánlatot excelből",
+        "expected_intent": "ingestion",
+    },
+    {
+        "question_hu": "mennyi egy 70 nm-es lakás teljes felújítása villannyal, vízvezetékkel és burkolással?",
+        "expected_intent": "cost_estimation",
+    },
+    {
+        "question_hu": "piros zászlók panel lakásnál, salak probléma",
+        "expected_intent": "due_diligence",
+    },
+    {
+        "question_hu": "hány idézet van a rendszerben a 13. kerületre?",
+        "expected_intent": "market_query",
+    },
 ]
 
 
 # ---------------------------------------------------------------------------
 # Performance measurement
 # ---------------------------------------------------------------------------
+
 
 class PerfStats:
     """Collect latency statistics across a load test run."""
@@ -72,13 +94,19 @@ class PerfStats:
         def _perc(data: list[float], p: float) -> float:
             if not data:
                 return 0.0
-            return statistics.quantiles(data, n=100, method='hdi')[int(p) - 1] if len(data) >= 100 else sorted(data)[int(len(data) * p / 100)]
+            return (
+                statistics.quantiles(data, n=100, method="hdi")[int(p) - 1]
+                if len(data) >= 100
+                else sorted(data)[int(len(data) * p / 100)]
+            )
 
         report: dict[str, Any] = {
             "total_requests": self._successes + self._errors,
             "successes": self._successes,
             "errors": self._errors,
-            "error_rate_pct": round(self._errors / max(1, self._successes + self._errors) * 100, 2),
+            "error_rate_pct": round(
+                self._errors / max(1, self._successes + self._errors) * 100, 2
+            ),
         }
         for stage, latencies in self._stage_latencies.items():
             if not latencies:
@@ -100,6 +128,7 @@ class PerfStats:
 # Simulated agent session (no external LLM dependency)
 # ---------------------------------------------------------------------------
 
+
 class MockGateway:
     """Synchronous mock of the Gateway agent for load testing."""
 
@@ -107,6 +136,7 @@ class MockGateway:
         """Simulate gateway classification with fake latency."""
         await asyncio.sleep(0.01)  # Simulate 10ms LLM call
         from orchestrator.gateway import _keyword_classify
+
         primary, secondary, confidence = _keyword_classify(question_hu)
         return {
             "primary_intent": primary,
@@ -119,11 +149,15 @@ class MockGateway:
 class MockPolicyService:
     """Synchronous mock of the PolicyService for load testing."""
 
-    async def check_structural(self, role: str, action: str, trace_id: str) -> dict[str, Any]:
+    async def check_structural(
+        self, role: str, action: str, trace_id: str
+    ) -> dict[str, Any]:
         await asyncio.sleep(0.002)  # Simulate 2ms YAML lookup
         return {"passed": True, "reason": "Mock structural pass", "trace_id": trace_id}
 
-    async def check_semantic(self, args: dict[str, Any], trace_id: str) -> dict[str, Any]:
+    async def check_semantic(
+        self, args: dict[str, Any], trace_id: str
+    ) -> dict[str, Any]:
         await asyncio.sleep(0.005)  # Simulate 5ms regex scan
         return {"passed": True, "reason": "Mock semantic pass", "trace_id": trace_id}
 
@@ -150,7 +184,9 @@ async def simulate_session(
         # Stage 2: Structural policy check
         t0 = time.monotonic()
         sr = await policy_service.check_structural(
-            decision["primary_intent"], "execute", decision["trace_id"],
+            decision["primary_intent"],
+            "execute",
+            decision["trace_id"],
         )
         stats.record("policy_structural", (time.monotonic() - t0) * 1000)
 
@@ -161,7 +197,8 @@ async def simulate_session(
         # Stage 3: Semantic policy check
         t0 = time.monotonic()
         sem = await policy_service.check_semantic(
-            {"question": query["question_hu"]}, decision["trace_id"],
+            {"question": query["question_hu"]},
+            decision["trace_id"],
         )
         stats.record("policy_semantic", (time.monotonic() - t0) * 1000)
 
@@ -181,7 +218,10 @@ async def simulate_session(
 # Main
 # ---------------------------------------------------------------------------
 
-async def run_load_test(concurrency: int, total_requests: int, verbose: bool = False) -> PerfStats:
+
+async def run_load_test(
+    concurrency: int, total_requests: int, verbose: bool = False
+) -> PerfStats:
     """Run the load test with the given concurrency and request count."""
     gateway = MockGateway()
     policy_service = MockPolicyService()
@@ -205,7 +245,9 @@ async def run_load_test(concurrency: int, total_requests: int, verbose: bool = F
         tasks.append(asyncio.create_task(bounded_session(query)))
 
     if verbose:
-        print(f"Starting load test: concurrency={concurrency}, requests={total_requests}")
+        print(
+            f"Starting load test: concurrency={concurrency}, requests={total_requests}"
+        )
 
     await asyncio.gather(*tasks)
 
@@ -217,19 +259,28 @@ def main() -> None:
         description="RenovAI 2.0 End-to-End Load Test",
     )
     parser.add_argument(
-        "--concurrency", "-c", type=int, default=10,
+        "--concurrency",
+        "-c",
+        type=int,
+        default=10,
         help="Number of concurrent simulated sessions",
     )
     parser.add_argument(
-        "--requests", "-n", type=int, default=50,
+        "--requests",
+        "-n",
+        type=int,
+        default=50,
         help="Total number of requests to simulate",
     )
     parser.add_argument(
-        "--verbose", "-v", action="store_true",
+        "--verbose",
+        "-v",
+        action="store_true",
         help="Print progress every 10 requests",
     )
     parser.add_argument(
-        "--json", action="store_true",
+        "--json",
+        action="store_true",
         help="Output results as JSON",
     )
     args = parser.parse_args()
@@ -247,16 +298,22 @@ def main() -> None:
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"RenovAI 2.0 Load Test Results")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"Concurrency: {args.concurrency}")
         print(f"Total Requests: {report['total_requests']}")
         print(f"Successes: {report['successes']}")
         print(f"Errors: {report['errors']} ({report['error_rate_pct']}%)")
         print(f"\n--- Per-Stage Latencies ---")
         for stage, s in report.items():
-            if stage in ("total_requests", "successes", "errors", "error_rate_pct", "config"):
+            if stage in (
+                "total_requests",
+                "successes",
+                "errors",
+                "error_rate_pct",
+                "config",
+            ):
                 continue
             print(f"\n{stage.upper()}:")
             print(f"  Count: {s.get('count', 0)}")
@@ -264,10 +321,14 @@ def main() -> None:
             print(f"  P95:   {s.get('p95_ms', 'N/A'):>8} ms")
             print(f"  P99:   {s.get('p99_ms', 'N/A'):>8} ms")
             print(f"  Avg:   {s.get('avg_ms', 'N/A'):>8} ms")
-        print(f"\n{'='*60}")
-        print(f"Total wall-clock P50:  {report.get('total', {}).get('p50_ms', 'N/A')} ms")
-        print(f"Total wall-clock P95:  {report.get('total', {}).get('p95_ms', 'N/A')} ms")
-        print(f"{'='*60}")
+        print(f"\n{'=' * 60}")
+        print(
+            f"Total wall-clock P50:  {report.get('total', {}).get('p50_ms', 'N/A')} ms"
+        )
+        print(
+            f"Total wall-clock P95:  {report.get('total', {}).get('p95_ms', 'N/A')} ms"
+        )
+        print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

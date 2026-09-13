@@ -23,10 +23,9 @@ Architecture:
       in Hungarian
 """
 
-import sys
-import os
 import asyncio
-import json
+import os
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -92,20 +91,40 @@ async def _adk_flow(question_hu: str) -> str:
 
 def _fallback_flow(question_hu: str, reason: str = "") -> str:
     """Fallback: call MCP tools via subprocess (stdio)."""
-    import subprocess
-    import json
-    import tempfile
 
     # Normalise the question
     q_lower = question_hu.lower()
 
     tool_calls = []
 
-    if any(kw in q_lower for kw in ("mennyit", "költség", "ár", "kerül", "ára", "költségek", "forint")):
+    if any(
+        kw in q_lower
+        for kw in ("mennyit", "költség", "ár", "kerül", "ára", "költségek", "forint")
+    ):
         tool_calls.append("estimate_renovation_cost")
-    if any(kw in q_lower for kw in ("figyeljek", "ellenőrzés", "kockázat", "piros zászló", "átvilágítás", "kérdés", "red flag")):
+    if any(
+        kw in q_lower
+        for kw in (
+            "figyeljek",
+            "ellenőrzés",
+            "kockázat",
+            "piros zászló",
+            "átvilágítás",
+            "kérdés",
+            "red flag",
+        )
+    ):
         tool_calls.append("get_due_diligence_advice")
-    if any(kw in q_lower for kw in ("átlag", "statisztika", "tendencia", "összehasonlítás", "melyik kerület")):
+    if any(
+        kw in q_lower
+        for kw in (
+            "átlag",
+            "statisztika",
+            "tendencia",
+            "összehasonlítás",
+            "melyik kerület",
+        )
+    ):
         tool_calls.append("query_renovation_market")
 
     if not tool_calls:
@@ -129,8 +148,12 @@ def _fallback_flow(question_hu: str, reason: str = "") -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python -m legacy.adk_agent_stretch_goal.agent <Hungarian question>")
-        print("Example: python -m legacy.adk_agent_stretch_goal.agent \"55 m²-es lakást nézek a 8. kerületben, villany és vízvezeték is kell, mennyit költsek felújításra és mire figyeljek vásárlás előtt?\"")
+        print(
+            "Usage: python -m legacy.adk_agent_stretch_goal.agent <Hungarian question>"
+        )
+        print(
+            'Example: python -m legacy.adk_agent_stretch_goal.agent "55 m²-es lakást nézek a 8. kerületben, villany és vízvezeték is kell, mennyit költsek felújításra és mire figyeljek vásárlás előtt?"'
+        )
         sys.exit(1)
 
     question = " ".join(sys.argv[1:])

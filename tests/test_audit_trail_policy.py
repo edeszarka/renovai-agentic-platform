@@ -6,6 +6,7 @@ entry (trace_id, role, action, resource, decision, timestamp) to the
 AuditStore, and a full Tab 1 (expert_interview) request through a real
 PolicyService must produce a retrievable per-trace trail.
 """
+
 import uuid
 
 import pytest
@@ -102,7 +103,9 @@ async def test_expert_interview_request_produces_full_trail(tmp_path):
 
     assert result["status"] == "ok", f"handler errored: {result.get('error')}"
     by_trace = [e for e in store.read_all() if e.trace_id == trace_id]
-    assert len(by_trace) == 2, f"expected 2 audit entries for trace, got {len(by_trace)}"
+    assert len(by_trace) == 2, (
+        f"expected 2 audit entries for trace, got {len(by_trace)}"
+    )
 
     structural = [e for e in by_trace if e.action_type == "structural_check"][0]
     assert structural.role == "expert_interviewer"

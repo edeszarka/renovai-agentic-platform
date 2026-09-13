@@ -1,10 +1,12 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from enum import Enum
-from typing import Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class LLMBackend(str, Enum):
     GEMINI = "gemini"
     OLLAMA = "ollama"
+
 
 class AppConfig(BaseSettings):
     llm_backend: LLMBackend = LLMBackend.GEMINI

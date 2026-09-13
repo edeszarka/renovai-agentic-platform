@@ -49,6 +49,7 @@ SKILL_DOC_PATH = Path(".agent/skills/cost_estimate/references/work_categories.md
 # Inputs: the three existing taxonomies
 # ---------------------------------------------------------------------------
 
+
 def load_seed_categories() -> List[Dict[str, str]]:
     from renovai.db.models import SEED_WORK_CATEGORIES
 
@@ -77,7 +78,11 @@ def load_skill_doc_categories(path: Path = SKILL_DOC_PATH) -> List[Dict[str, str
         if not line.startswith("|"):
             continue
         cells = [c.strip() for c in line.strip("|").split("|")]
-        if len(cells) < 2 or cells[0].lower() in ("hungarian keyword", "") or set(cells[0]) <= {"-", " "}:
+        if (
+            len(cells) < 2
+            or cells[0].lower() in ("hungarian keyword", "")
+            or set(cells[0]) <= {"-", " "}
+        ):
             continue
         rows.append({"key": cells[0], "label_en": cells[1]})
     return rows
@@ -87,25 +92,30 @@ def load_skill_doc_categories(path: Path = SKILL_DOC_PATH) -> List[Dict[str, str
 # Corpus extraction (read-only)
 # ---------------------------------------------------------------------------
 
+
 def sqlite_path_from_url(database_url: str) -> Path:
     for prefix in ("sqlite+aiosqlite:///", "sqlite:///"):
         if database_url.startswith(prefix):
-            return Path(database_url[len(prefix):])
+            return Path(database_url[len(prefix) :])
     raise ValueError(f"Expected a file-backed SQLite URL, got {database_url!r}")
 
 
-def extract_vocabulary(db_path: Path) -> Tuple[List[Tuple[str, int]], List[Tuple[str, int]]]:
+def extract_vocabulary(
+    db_path: Path,
+) -> Tuple[List[Tuple[str, int]], List[Tuple[str, int]]]:
     """Return distinct (name_hu, count) and (notes_hu, count), read-only."""
     uri = f"file:{db_path.as_posix()}?mode=ro"
     con = sqlite3.connect(uri, uri=True)
     try:
         names = Counter(
-            r[0] for r in con.execute(
+            r[0]
+            for r in con.execute(
                 "SELECT name_hu FROM line_items WHERE name_hu IS NOT NULL AND TRIM(name_hu) <> ''"
             )
         )
         notes = Counter(
-            r[0] for r in con.execute(
+            r[0]
+            for r in con.execute(
                 "SELECT notes_hu FROM line_items WHERE notes_hu IS NOT NULL AND TRIM(notes_hu) <> ''"
             )
         )
@@ -117,6 +127,7 @@ def extract_vocabulary(db_path: Path) -> Tuple[List[Tuple[str, int]], List[Tuple
 # ---------------------------------------------------------------------------
 # LLM prompt building
 # ---------------------------------------------------------------------------
+
 
 def _fmt_seed(categories: Sequence[Dict[str, str]]) -> str:
     return "\n".join(
@@ -198,6 +209,7 @@ def build_assignment_prompt(
 # Parsing / normalisation
 # ---------------------------------------------------------------------------
 
+
 def loads_json(text: str) -> Any:
     text = text.strip()
     if text.startswith("```"):
@@ -209,18 +221,19 @@ def loads_json(text: str) -> Any:
     except json.JSONDecodeError:
         start, end = text.find("{"), text.rfind("}")
         if start != -1 and end > start:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         raise
 
 
 def chunked(seq: Sequence[Any], size: int) -> Iterable[List[Any]]:
     for i in range(0, len(seq), size):
-        yield list(seq[i:i + size])
+        yield list(seq[i : i + size])
 
 
 # ---------------------------------------------------------------------------
 # Main flow
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CallLog:
@@ -318,12 +331,16 @@ def run(database_url: str, out_path: Path, batch_size: int) -> TaxonomyBuild:
         "members": build.members,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return build
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Build the canonical category taxonomy")
+    parser = argparse.ArgumentParser(
+        description="Build the canonical category taxonomy"
+    )
     parser.add_argument(
         "--database-url",
         default=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db"),
@@ -332,13 +349,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--batch-size", type=int, default=100)
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
     build = run(args.database_url, Path(args.out), args.batch_size)
 
     print(f"Canonical categories: {len(build.categories)}")
     for c in build.categories:
         n = len(build.members.get(c["key"], []))
-        print(f"  {c['key']:<24} {n:>4} distinct phrasings  scope={c.get('scope_bucket')}")
+        print(
+            f"  {c['key']:<24} {n:>4} distinct phrasings  scope={c.get('scope_bucket')}"
+        )
     print("Providers used:", sorted({c.provider for c in build.calls}))
     print(f"Wrote {args.out}")
     return 0

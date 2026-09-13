@@ -24,14 +24,13 @@ Usage:
     # Pass identity to PolicyService for ABAC evaluation
 """
 
-import os
-import json
-import uuid
-import time
-import hmac
 import hashlib
+import hmac
+import json
 import logging
-from dataclasses import dataclass, field
+import os
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -50,8 +49,18 @@ AGENT_REGISTRY: dict[str, dict[str, Any]] = {
         "max_token_ttl_seconds": 300,  # 5 minutes
     },
     "cost_estimator": {
-        "allowed_actions": ["predict_cost", "find_similar", "scope_match", "compute_breakdown"],
-        "allowed_resources": ["price_model", "inflation_data", "quote_corpus", "adjusted_json"],
+        "allowed_actions": [
+            "predict_cost",
+            "find_similar",
+            "scope_match",
+            "compute_breakdown",
+        ],
+        "allowed_resources": [
+            "price_model",
+            "inflation_data",
+            "quote_corpus",
+            "adjusted_json",
+        ],
         "max_token_ttl_seconds": 600,  # 10 minutes
     },
     "market_analyst": {
@@ -60,13 +69,34 @@ AGENT_REGISTRY: dict[str, dict[str, Any]] = {
         "max_token_ttl_seconds": 300,
     },
     "due_diligence": {
-        "allowed_actions": ["retrieve_context", "generate_report", "call_gemini", "hybrid_search"],
-        "allowed_resources": ["rag_pipeline", "vector_store", "quote_corpus", "gemini_llm"],
+        "allowed_actions": [
+            "retrieve_context",
+            "generate_report",
+            "call_gemini",
+            "hybrid_search",
+        ],
+        "allowed_resources": [
+            "rag_pipeline",
+            "vector_store",
+            "quote_corpus",
+            "gemini_llm",
+        ],
         "max_token_ttl_seconds": 600,
     },
     "ingestion": {
-        "allowed_actions": ["parse_xlsx", "extract_huf", "adjust_inflation", "write_to_db", "export_markdown"],
-        "allowed_resources": ["sandbox", "raw_database", "financial_data", "adjusted_json"],
+        "allowed_actions": [
+            "parse_xlsx",
+            "extract_huf",
+            "adjust_inflation",
+            "write_to_db",
+            "export_markdown",
+        ],
+        "allowed_resources": [
+            "sandbox",
+            "raw_database",
+            "financial_data",
+            "adjusted_json",
+        ],
         "max_token_ttl_seconds": 600,
     },
     "green_team": {
@@ -90,13 +120,14 @@ class AgentIdentity:
     - Expiration timestamp (JIT + ephemeral)
     - HMAC signature for tamper-proofing
     """
+
     agent_id: str
     session_id: str
     spiffe_uri: str
     claims: dict[str, Any]
     issued_at: str
     expires_at: str
-    token: str = ""     # JWT-formatted token string (signed HMAC)
+    token: str = ""  # JWT-formatted token string (signed HMAC)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -129,6 +160,7 @@ class AgentIdentity:
 # ---------------------------------------------------------------------------
 # Identity Manager
 # ---------------------------------------------------------------------------
+
 
 class AgentIdentityManager:
     """Mints, verifies, and revokes JIT-downscoped agent identities.
@@ -173,13 +205,17 @@ class AgentIdentityManager:
         """
         registry_entry = AGENT_REGISTRY.get(agent_id)
         if registry_entry is None:
-            raise ValueError(f"Unknown agent_id: '{agent_id}'. Must be one of: {list(AGENT_REGISTRY.keys())}")
+            raise ValueError(
+                f"Unknown agent_id: '{agent_id}'. Must be one of: {list(AGENT_REGISTRY.keys())}"
+            )
 
         spiffe_uri = f"spiffe://renovai/{agent_id}/{session_id}"
         now = datetime.now(timezone.utc)
         ttl = registry_entry["max_token_ttl_seconds"]
         issued_at = now.isoformat()
-        expires_at = datetime.fromtimestamp(now.timestamp() + ttl, tz=timezone.utc).isoformat()
+        expires_at = datetime.fromtimestamp(
+            now.timestamp() + ttl, tz=timezone.utc
+        ).isoformat()
 
         claims = {
             "allowed_actions": registry_entry["allowed_actions"],
@@ -211,7 +247,10 @@ class AgentIdentityManager:
 
         logger.info(
             "[%s] Identity minted: %s (TTL=%ds, claims=%s)",
-            session_id, spiffe_uri, ttl, list(claims.keys()),
+            session_id,
+            spiffe_uri,
+            ttl,
+            list(claims.keys()),
         )
         return identity
 
@@ -237,6 +276,7 @@ class AgentIdentityManager:
 
             # Decode payload to check expiration
             import base64
+
             payload_padded = payload_b64 + "=" * (4 - len(payload_b64) % 4)
             payload_json = base64.urlsafe_b64decode(payload_padded)
             payload = json.loads(payload_json)
@@ -261,7 +301,9 @@ class AgentIdentityManager:
         (e.g. Redis set with TTL matching original expiry).
         """
         logger.info(
-            "[%s] Identity revoked: %s", identity.session_id, identity.spiffe_uri,
+            "[%s] Identity revoked: %s",
+            identity.session_id,
+            identity.spiffe_uri,
         )
         # TODO: Add to revocation list in Redis
 
@@ -295,5 +337,6 @@ class AgentIdentityManager:
     @staticmethod
     def _urlsafe_b64_decode(data: str) -> bytes:
         import base64
+
         padded = data + "=" * (4 - len(data) % 4)
         return base64.urlsafe_b64decode(padded)

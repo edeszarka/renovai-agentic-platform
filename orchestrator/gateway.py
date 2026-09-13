@@ -10,11 +10,11 @@ The Gateway is the sole entry point for all user queries. Its responsibilities:
 All routing decisions are logged with a trace_id for observability.
 """
 
+import json
+import logging
 import os
 import re
-import json
 import uuid
-import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,8 +25,10 @@ logger = logging.getLogger(__name__)
 # Data models
 # ---------------------------------------------------------------------------
 
+
 class Intent(str):
     """Canonical intent names."""
+
     COST_ESTIMATION = "cost_estimation"
     MARKET_QUERY = "market_query"
     DUE_DILIGENCE = "due_diligence"
@@ -44,6 +46,7 @@ class RoutingDecision:
 
     Serialises to JSON for structured LLM output mode.
     """
+
     primary_intent: str = Intent.UNKNOWN
     secondary_intents: list[str] = field(default_factory=list)
     confidence: float = 0.0
@@ -82,33 +85,104 @@ class RoutingDecision:
 
 KEYWORD_INTENT_MAP: list[tuple[str, str, list[str]]] = [
     # (intent, sub_key, keywords)
-    (Intent.COST_ESTIMATION, "cost",
-     ["mennyibe kerül", "mennyit költsek", "költség", "költségek",
-      "ár", "ára", "forint", "nm ára", "kerül", "mennyi"]),
-    (Intent.MARKET_QUERY, "market",
-     ["átlag", "átlagosan", "statisztika", "tendencia",
-      "összehasonlítás", "melyik kerület", "hány idézet"]),
-    (Intent.DUE_DILIGENCE, "due_diligence",
-     ["mire figyeljek", "ellenőrzés", "kockázat", "piros zászló",
-      "átvilágítás", "kérdés az eladóhoz", "red flag",
-      "mit nézzek", "mire érdemes figyelni"]),
-    (Intent.INGESTION, "ingestion",
-     ["feltöltök", "árajánlat", "xlsx", "excel", "beszúrok",
-      "import", "parse"]),
-    (Intent.EXPERT_INTERVIEW, "expert_interview",
-     ["mire figyeljek", "épületfizikai", "vörös zászló", "red flag",
-      "kockázat", "átvilágítás", "salak", "kohósalak",
-      "teherhordó fal", "építési korszak", "alapozás",
-      "mit nézzek meg vásárlás előtt", "milyen állapotban van",
-      "boltíves", "födém", "betontálcás", "vevői felkészítő",
-      "szakvélemény", "mit nézzek", "tégla boltíves"]),
-    (Intent.CONSTRUCTION_PLANNING, "construction_planning",
-     ["sorrend", "ütemezés", "előbb csinálni", "lépés",
-      "milyen sorrendben", "építési sorrend", "technológiai sorrend",
-      "bontás után", "kőműves", "burkolás előtt",
-      "teljes felújítás terv", "lépésről lépésre",
-      "részleges felújítás", "felújítási tervező",
-      "tervezés", "ütemterv", "fázis"]),
+    (
+        Intent.COST_ESTIMATION,
+        "cost",
+        [
+            "mennyibe kerül",
+            "mennyit költsek",
+            "költség",
+            "költségek",
+            "ár",
+            "ára",
+            "forint",
+            "nm ára",
+            "kerül",
+            "mennyi",
+        ],
+    ),
+    (
+        Intent.MARKET_QUERY,
+        "market",
+        [
+            "átlag",
+            "átlagosan",
+            "statisztika",
+            "tendencia",
+            "összehasonlítás",
+            "melyik kerület",
+            "hány idézet",
+        ],
+    ),
+    (
+        Intent.DUE_DILIGENCE,
+        "due_diligence",
+        [
+            "mire figyeljek",
+            "ellenőrzés",
+            "kockázat",
+            "piros zászló",
+            "átvilágítás",
+            "kérdés az eladóhoz",
+            "red flag",
+            "mit nézzek",
+            "mire érdemes figyelni",
+        ],
+    ),
+    (
+        Intent.INGESTION,
+        "ingestion",
+        ["feltöltök", "árajánlat", "xlsx", "excel", "beszúrok", "import", "parse"],
+    ),
+    (
+        Intent.EXPERT_INTERVIEW,
+        "expert_interview",
+        [
+            "mire figyeljek",
+            "épületfizikai",
+            "vörös zászló",
+            "red flag",
+            "kockázat",
+            "átvilágítás",
+            "salak",
+            "kohósalak",
+            "teherhordó fal",
+            "építési korszak",
+            "alapozás",
+            "mit nézzek meg vásárlás előtt",
+            "milyen állapotban van",
+            "boltíves",
+            "födém",
+            "betontálcás",
+            "vevői felkészítő",
+            "szakvélemény",
+            "mit nézzek",
+            "tégla boltíves",
+        ],
+    ),
+    (
+        Intent.CONSTRUCTION_PLANNING,
+        "construction_planning",
+        [
+            "sorrend",
+            "ütemezés",
+            "előbb csinálni",
+            "lépés",
+            "milyen sorrendben",
+            "építési sorrend",
+            "technológiai sorrend",
+            "bontás után",
+            "kőműves",
+            "burkolás előtt",
+            "teljes felújítás terv",
+            "lépésről lépésre",
+            "részleges felújítás",
+            "felújítási tervező",
+            "tervezés",
+            "ütemterv",
+            "fázis",
+        ],
+    ),
 ]
 
 
@@ -185,6 +259,7 @@ def _build_classification_prompt(question_hu: str) -> str:
 # Gateway
 # ---------------------------------------------------------------------------
 
+
 class Gateway:
     """
     Gateway Agent — entry point for all user queries.
@@ -214,7 +289,9 @@ class Gateway:
         trace_id = f"{self._trace_id_prefix}-{uuid.uuid4().hex[:12]}"
 
         # Tier 1: keyword matching
-        primary_intent, secondary_intents, kw_confidence = _keyword_classify(question_hu)
+        primary_intent, secondary_intents, kw_confidence = _keyword_classify(
+            question_hu
+        )
 
         if kw_confidence >= 0.7:
             return RoutingDecision(
@@ -247,9 +324,9 @@ class Gateway:
                     clarification_question=(
                         "Nem teljesen értem a kérdést. Kérlek pontosítsd: "
                         "(1) felújítási költségbecslés, (2) elővásárlási "
-                         "tanácsadás, (3) piaci statisztikák, "
-                         "(4) árajánlat feltöltése, (5) épületfizikai "
-                         "szakvélemény, vagy (6) felújítási ütemterv?"
+                        "tanácsadás, (3) piaci statisztikák, "
+                        "(4) árajánlat feltöltése, (5) épületfizikai "
+                        "szakvélemény, vagy (6) felújítási ütemterv?"
                     ),
                     trace_id=trace_id,
                 )
@@ -295,8 +372,8 @@ class Gateway:
                 decision.clarification_question = (
                     "Nem teljesen biztos a kérdés típusában. Kérlek pontosítsd: "
                     "költségbecslést, elővásárlási tanácsadást, piaci adatokat, "
-                         "árajánlat feltöltést, épületfizikai szakvéleményt, "
-                         "vagy felújítási ütemtervet szeretnél?"
+                    "árajánlat feltöltést, épületfizikai szakvéleményt, "
+                    "vagy felújítási ütemtervet szeretnél?"
                 )
 
             # Merge keyword-extracted params as fallback
@@ -306,7 +383,9 @@ class Gateway:
 
             logger.info(
                 "[%s] LLM classify: intent=%s confidence=%.2f",
-                trace_id, decision.primary_intent, decision.confidence,
+                trace_id,
+                decision.primary_intent,
+                decision.confidence,
             )
             return decision
 
@@ -327,7 +406,7 @@ class Gateway:
         params: dict[str, Any] = {}
 
         # District
-        district_match = re.search(r'(\d+)\.\s*kerület', question_hu)
+        district_match = re.search(r"(\d+)\.\s*kerület", question_hu)
         if district_match:
             try:
                 params["district"] = int(district_match.group(1))
@@ -335,7 +414,7 @@ class Gateway:
                 pass
 
         # Area
-        area_match = re.search(r'(\d+)\s*nm', question_hu)
+        area_match = re.search(r"(\d+)\s*nm", question_hu)
         if area_match:
             try:
                 params["area_sqm"] = float(area_match.group(1))
@@ -343,7 +422,7 @@ class Gateway:
                 pass
 
         # Rooms
-        rooms_match = re.search(r'(\d+)\s*szob', question_hu)
+        rooms_match = re.search(r"(\d+)\s*szob", question_hu)
         if rooms_match:
             try:
                 params["num_rooms"] = int(rooms_match.group(1))
@@ -359,38 +438,50 @@ class Gateway:
             params["building_type"] = "újépítés"
 
         # Building era detection
-        era_match = re.search(r'(19\d\d|20\d\d)', question_hu)
+        era_match = re.search(r"(19\d\d|20\d\d)", question_hu)
         if era_match:
             params["building_era"] = era_match.group(1)
 
         # Ceiling height (belmagasság)
-        height_match = re.search(r'(\d+[.,]\d+)\s*m(é|e)ter\s*belmagasság', question_hu)
+        height_match = re.search(r"(\d+[.,]\d+)\s*m(é|e)ter\s*belmagasság", question_hu)
         if not height_match:
-            height_match = re.search(r'(\d+[.,]\d+)\s*m\s*(magas|belmagasság)', question_hu)
+            height_match = re.search(
+                r"(\d+[.,]\d+)\s*m\s*(magas|belmagasság)", question_hu
+            )
         if not height_match:
-            height_match = re.search(r'magas\s*mennyezet', question_hu)
+            height_match = re.search(r"magas\s*mennyezet", question_hu)
             if height_match:
                 params["ceiling_height"] = 3.5
         if height_match and "ceiling_height" not in params:
             try:
-                params["ceiling_height"] = float(height_match.group(1).replace(",", "."))
+                params["ceiling_height"] = float(
+                    height_match.group(1).replace(",", ".")
+                )
             except (ValueError, IndexError):
                 pass
 
         # Elevator (lift)
-        if any(kw in question_hu.lower() for kw in ["nincs lift", "lift nélkül", "lift nincs"]):
+        if any(
+            kw in question_hu.lower()
+            for kw in ["nincs lift", "lift nélkül", "lift nincs"]
+        ):
             params["elevator_type"] = "none"
-        elif any(kw in question_hu.lower() for kw in ["240 kg", "teherlift", "nagy lift"]):
+        elif any(
+            kw in question_hu.lower() for kw in ["240 kg", "teherlift", "nagy lift"]
+        ):
             params["elevator_type"] = "large"
         elif "lift" in question_hu.lower():
             params["elevator_type"] = "small"
 
         # Individual gas heating (egyedi gázfűtés)
-        if any(kw in question_hu.lower() for kw in ["gázfűtés", "gázkazán", "cirkó", "egyedi gáz"]):
+        if any(
+            kw in question_hu.lower()
+            for kw in ["gázfűtés", "gázkazán", "cirkó", "egyedi gáz"]
+        ):
             params["gas_heating"] = True
 
         # Floor number (emeletszám)
-        floor_match = re.search(r'(\d+)\.\s*emelet', question_hu)
+        floor_match = re.search(r"(\d+)\.\s*emelet", question_hu)
         if floor_match:
             try:
                 params["floor_number"] = int(floor_match.group(1))
@@ -398,19 +489,29 @@ class Gateway:
                 pass
 
         # Condition keywords
-        if any(kw in question_hu.lower() for kw in ["fűrészporos tapéta", "tapéta", "rossz állapot"]):
+        if any(
+            kw in question_hu.lower()
+            for kw in ["fűrészporos tapéta", "tapéta", "rossz állapot"]
+        ):
             params.setdefault("wall_condition", {})["wallpaper"] = True
-        if any(kw in question_hu.lower() for kw in ["épített zuhany", "beépített zuhany"]):
+        if any(
+            kw in question_hu.lower() for kw in ["épített zuhany", "beépített zuhany"]
+        ):
             params.setdefault("scope_flags", {})["built_in_shower"] = True
         if any(kw in question_hu.lower() for kw in ["salak", "kohósalak"]):
             params.setdefault("scope_flags", {})["slag"] = True
 
         # Floor construction
-        if any(kw in question_hu.lower() for kw in ["acél gerendás", "boltíves", "födém"]):
+        if any(
+            kw in question_hu.lower() for kw in ["acél gerendás", "boltíves", "födém"]
+        ):
             params["floor_construction"] = "acél gerendás"
 
         # Sequencing keywords
-        if any(kw in question_hu.lower() for kw in ["sorrend", "ütemezés", "lépés", "hány lépés"]):
+        if any(
+            kw in question_hu.lower()
+            for kw in ["sorrend", "ütemezés", "lépés", "hány lépés"]
+        ):
             params["want_sequence"] = True
 
         # Scope flags
@@ -419,19 +520,39 @@ class Gateway:
             scope_flags["electrical"] = True
         if any(kw in question_hu.lower() for kw in ["víz", "vízvezeték", "plumbing"]):
             scope_flags["plumbing"] = True
-        if any(kw in question_hu.lower() for kw in ["fűtés", "fűtésrendszer", "kazán", "radiátor", "cirkó", "padlófűtés"]):
+        if any(
+            kw in question_hu.lower()
+            for kw in [
+                "fűtés",
+                "fűtésrendszer",
+                "kazán",
+                "radiátor",
+                "cirkó",
+                "padlófűtés",
+            ]
+        ):
             scope_flags["heating"] = True
-        if any(kw in question_hu.lower() for kw in ["burkol", "járólap", "csempe", "parketta", "laminált"]):
+        if any(
+            kw in question_hu.lower()
+            for kw in ["burkol", "járólap", "csempe", "parketta", "laminált"]
+        ):
             scope_flags["flooring"] = True
         if any(kw in question_hu.lower() for kw in ["bontás", "bont"]):
             scope_flags["demolition"] = True
         if any(kw in question_hu.lower() for kw in ["salak", "kohósalak"]):
             scope_flags["slag"] = True
-        if any(kw in question_hu.lower() for kw in ["klíma", "légkondi", "légkondícionáló"]):
+        if any(
+            kw in question_hu.lower() for kw in ["klíma", "légkondi", "légkondícionáló"]
+        ):
             scope_flags["ac"] = True
-        if any(kw in question_hu.lower() for kw in ["szigetelés", "hőszigetelés", "hangszigetelés"]):
+        if any(
+            kw in question_hu.lower()
+            for kw in ["szigetelés", "hőszigetelés", "hangszigetelés"]
+        ):
             scope_flags["insulation"] = True
-        if any(kw in question_hu.lower() for kw in ["ablak", "ajtó", "nyílászáró", "tok"]):
+        if any(
+            kw in question_hu.lower() for kw in ["ablak", "ajtó", "nyílászáró", "tok"]
+        ):
             scope_flags["windows_doors"] = True
         if any(kw in question_hu.lower() for kw in ["konyha", "konyhabútor"]):
             scope_flags["kitchen"] = True

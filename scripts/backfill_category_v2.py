@@ -35,10 +35,10 @@ from sqlalchemy import select
 from renovai.db.models import LineItemORM
 from renovai.db.session import get_engine, get_session_maker
 from scripts.line_item_classifier import (
+    PHASE1_JSON_DEFAULT,
     classify_line_item,
     default_providers,
     load_lookup,
-    PHASE1_JSON_DEFAULT,
 )
 
 load_dotenv()
@@ -64,7 +64,10 @@ async def backfill(
             for row in rows:
                 total += 1
                 result = classify_line_item(
-                    row.name_hu, lookup=lookup, providers=providers, notes_hu=row.notes_hu
+                    row.name_hu,
+                    lookup=lookup,
+                    providers=providers,
+                    notes_hu=row.notes_hu,
                 )
                 tier_counts[result.tier] += 1
                 if result.tier != "lookup":
@@ -106,14 +109,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
 
     lookup = load_lookup(args.lookup)
     stats = asyncio.run(backfill(args.database_url, lookup, dry_run=args.dry_run))
 
     out_path = Path(args.stats_out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     print(f"Backfilled {stats['total_items']} line items (dry_run={stats['dry_run']})")
     for tier in ("lookup", "groq", "deepseek", "unresolved"):

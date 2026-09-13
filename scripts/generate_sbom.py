@@ -17,14 +17,14 @@ Usage:
     python scripts/generate_sbom.py --gate
 """
 
+import argparse
+import hashlib
+import json
+import logging
 import os
 import sys
-import json
-import hashlib
-import logging
-import argparse
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -73,19 +73,19 @@ KNOWN_GOOD_MANIFEST: dict[str, str] = {
 
 # Packages whose presence would indicate a hallucinated / unverified dependency
 BLOCKED_PACKAGES: list[str] = [
-    "requests",           # Should use httpx or aiohttp
-    "beautifulsoup4",     # No web scraping in this system
-    "selenium",           # No browser automation
-    "flask",              # Using FastAPI, not Flask
-    "django",             # Wrong framework
-    "tensorflow",         # Using scikit-learn + TabPFN
-    "torch",              # Using scikit-learn + TabPFN
-    "transformers",       # Using Google GenAI SDK directly
-    "psycopg2",           # Using SQLAlchemy + aiosqlite
-    "mysql-connector",    # Using SQLAlchemy + aiosqlite
-    "cryptography",       # Not needed (identities use hmac + hashlib)
-    "paramiko",           # No SSH
-    "docker",             # No Docker SDK from within the container
+    "requests",  # Should use httpx or aiohttp
+    "beautifulsoup4",  # No web scraping in this system
+    "selenium",  # No browser automation
+    "flask",  # Using FastAPI, not Flask
+    "django",  # Wrong framework
+    "tensorflow",  # Using scikit-learn + TabPFN
+    "torch",  # Using scikit-learn + TabPFN
+    "transformers",  # Using Google GenAI SDK directly
+    "psycopg2",  # Using SQLAlchemy + aiosqlite
+    "mysql-connector",  # Using SQLAlchemy + aiosqlite
+    "cryptography",  # Not needed (identities use hmac + hashlib)
+    "paramiko",  # No SSH
+    "docker",  # No Docker SDK from within the container
 ]
 
 
@@ -93,12 +93,13 @@ BLOCKED_PACKAGES: list[str] = [
 # SBOM Generation (SPDX 2.3)
 # ---------------------------------------------------------------------------
 
+
 def scan_installed_packages() -> dict[str, str]:
     """Scan all installed Python packages using importlib.metadata."""
     try:
-        from importlib.metadata import distributions, version
+        from importlib.metadata import distributions
     except ImportError:
-        from importlib_metadata import distributions, version
+        from importlib_metadata import distributions
 
     packages: dict[str, str] = {}
     for dist in distributions():
@@ -140,6 +141,7 @@ def generate_spdx_sbom(
         pkg_hash = ""
         try:
             import importlib
+
             mod = importlib.import_module(pkg_name.replace("-", "_"))
             mod_file = getattr(mod, "__file__", None)
             if mod_file and os.path.isfile(mod_file):
@@ -157,7 +159,9 @@ def generate_spdx_sbom(
             "licenseConcluded": "NOASSERTION",
             "licenseDeclared": "NOASSERTION",
             "copyrightText": "NOASSERTION",
-            "checksums": [{"algorithm": "SHA256", "checksumValue": pkg_hash}] if pkg_hash else [],
+            "checksums": [{"algorithm": "SHA256", "checksumValue": pkg_hash}]
+            if pkg_hash
+            else [],
             "externalRefs": [
                 {
                     "referenceCategory": "PACKAGE-MANAGER",
@@ -169,11 +173,13 @@ def generate_spdx_sbom(
         spdx["packages"].append(spdx_pkg)
 
         # Relationship to document root
-        spdx["relationships"].append({
-            "spdxElementId": "SPDXRef-DOCUMENT",
-            "relationshipType": "DESCRIBES",
-            "relatedSpdxElement": pkg_spdx_id,
-        })
+        spdx["relationships"].append(
+            {
+                "spdxElementId": "SPDXRef-DOCUMENT",
+                "relationshipType": "DESCRIBES",
+                "relatedSpdxElement": pkg_spdx_id,
+            }
+        )
 
     return spdx
 
@@ -181,6 +187,7 @@ def generate_spdx_sbom(
 # ---------------------------------------------------------------------------
 # Binary Authorization Gate
 # ---------------------------------------------------------------------------
+
 
 def verify_manifest(
     installed_packages: dict[str, str],
@@ -237,32 +244,41 @@ def verify_manifest(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="RenovAI SBOM Generator & Binary Authorization Gate",
     )
     parser.add_argument(
-        "--generate", action="store_true",
+        "--generate",
+        action="store_true",
         help="Generate SPDX SBOM from installed packages",
     )
     parser.add_argument(
-        "--output", type=str, default="data/sbom/spdx.json",
+        "--output",
+        type=str,
+        default="data/sbom/spdx.json",
         help="Output path for SBOM file",
     )
     parser.add_argument(
-        "--verify", action="store_true",
+        "--verify",
+        action="store_true",
         help="Verify installed packages against known-good manifest",
     )
     parser.add_argument(
-        "--manifest", type=str, default=None,
+        "--manifest",
+        type=str,
+        default=None,
         help="Path to known-good manifest JSON (optional)",
     )
     parser.add_argument(
-        "--gate", action="store_true",
+        "--gate",
+        action="store_true",
         help="Run full gate: generate SBOM + verify manifest, exit with code 0/1",
     )
     parser.add_argument(
-        "--fail-on-unknown", action="store_true",
+        "--fail-on-unknown",
+        action="store_true",
         help="Treat unknown packages as gate failures",
     )
     args = parser.parse_args()
@@ -280,7 +296,9 @@ def main() -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(sbom, f, indent=2, ensure_ascii=False)
-        logger.info("SBOM written to %s (%d packages)", output_path, len(sbom["packages"]))
+        logger.info(
+            "SBOM written to %s (%d packages)", output_path, len(sbom["packages"])
+        )
 
     if args.verify or args.gate:
         # Load custom manifest if provided
@@ -299,9 +317,9 @@ def main() -> None:
             result["gate_passed"] = False
 
         # Print results
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Binary Authorization Gate")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"Gate passed: {'YES' if result['gate_passed'] else 'NO'}")
         print(f"Allowed packages: {len(result['allowed_packages'])}")
         print(f"Unknown packages: {len(result['unknown_packages'])}")

@@ -6,6 +6,7 @@ the existing confidence / risk signals are weak, instead of returning a plain
 number.  These tests fail on the pre-task-3 handlers (which have no
 needs_intervention key at all) and pass once the gate is wired.
 """
+
 import pytest
 
 from orchestrator.policy_service import PolicyCheckResult
@@ -17,7 +18,9 @@ class FakePolicyService:
             passed=True, reason="test-gate", trace_id="t", check_type="structural"
         )
 
-    def check_structural(self, role: str, action: str, trace_id: str) -> PolicyCheckResult:
+    def check_structural(
+        self, role: str, action: str, trace_id: str
+    ) -> PolicyCheckResult:
         return self._result
 
     async def check_semantic(self, args: dict, trace_id: str, **kwargs):
@@ -62,6 +65,7 @@ def realistic_params(**overrides) -> dict:
 # cost_estimation — low-confidence input must surface needs_intervention
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_cost_estimation_low_similarity_surfaces_needs_intervention(monkeypatch):
     """When fewer than 3 similar corpus quotes are found (the exact condition
@@ -72,8 +76,12 @@ async def test_cost_estimation_low_similarity_surfaces_needs_intervention(monkey
     monkeypatch.setattr(
         "renovai.predictor.price_model.find_similar_quotes",
         lambda features, quotes_dir, top_k=3: [
-            {"file": "only.json", "address": 5,
-             "grand_total_adjusted": 1_000_000, "distance": 0.5},
+            {
+                "file": "only.json",
+                "address": 5,
+                "grand_total_adjusted": 1_000_000,
+                "distance": 0.5,
+            },
         ],
     )
 
@@ -91,6 +99,7 @@ async def test_cost_estimation_low_similarity_surfaces_needs_intervention(monkey
 # ---------------------------------------------------------------------------
 # expert_interview — high semantic risk must surface needs_intervention
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_expert_interview_critical_risk_surfaces_needs_intervention():

@@ -8,9 +8,8 @@ from __future__ import annotations
 import pytest
 
 from scripts.line_item_classifier import (
-    LLMProvider,
-    ProviderError,
     REVIEW,
+    LLMProvider,
     SzigetelesItem,
     classify_line_item,
     enforce_szigeteles_rule,
@@ -52,6 +51,7 @@ def _no_sleep(_seconds: float) -> None:
 # Tier 1 — lookup skips the LLM entirely
 # ---------------------------------------------------------------------------
 
+
 def test_lookup_hit_skips_providers():
     groq = FakeProvider("groq", lambda n, p: '{"category_key": "villany"}')
     lookup = {normalize_name("Bontás"): "bontas"}
@@ -74,12 +74,14 @@ def test_lookup_is_accent_and_case_insensitive():
 # Tier 2/3 — lookup miss → Groq → DeepSeek
 # ---------------------------------------------------------------------------
 
+
 def test_lookup_miss_uses_groq_first():
     groq = FakeProvider("groq", lambda n, p: '{"category_key": "villany"}')
     deepseek = FakeProvider("deepseek", lambda n, p: '{"category_key": "bontas"}')
 
     result = classify_line_item(
-        "Some new line item", lookup={},
+        "Some new line item",
+        lookup={},
         providers=[groq.as_provider(), deepseek.as_provider()],
         sleep=_no_sleep,
     )
@@ -97,7 +99,8 @@ def test_groq_failure_falls_through_to_deepseek():
     deepseek = FakeProvider("deepseek", lambda n, p: '{"category_key": "furdo"}')
 
     result = classify_line_item(
-        "Some new line item", lookup={},
+        "Some new line item",
+        lookup={},
         providers=[groq.as_provider(), deepseek.as_provider()],
         sleep=_no_sleep,
     )
@@ -112,7 +115,8 @@ def test_invalid_json_falls_through_to_next_provider():
     deepseek = FakeProvider("deepseek", lambda n, p: '{"category_key": "klima"}')
 
     result = classify_line_item(
-        "Some new line item", lookup={},
+        "Some new line item",
+        lookup={},
         providers=[groq.as_provider(), deepseek.as_provider()],
         sleep=_no_sleep,
     )
@@ -124,12 +128,17 @@ def test_invalid_json_falls_through_to_next_provider():
 # Error policy
 # ---------------------------------------------------------------------------
 
+
 def test_quota_error_is_not_retried_and_fails_over():
-    groq = FakeProvider("groq", lambda n, p: (_ for _ in ()).throw(FakeHTTPError(429, "RESOURCE_EXHAUSTED")))
+    groq = FakeProvider(
+        "groq",
+        lambda n, p: (_ for _ in ()).throw(FakeHTTPError(429, "RESOURCE_EXHAUSTED")),
+    )
     deepseek = FakeProvider("deepseek", lambda n, p: '{"category_key": "egyeb"}')
 
     result = classify_line_item(
-        "Some new line item", lookup={},
+        "Some new line item",
+        lookup={},
         providers=[groq.as_provider(), deepseek.as_provider()],
         sleep=_no_sleep,
     )
@@ -138,7 +147,9 @@ def test_quota_error_is_not_retried_and_fails_over():
 
 
 def test_quota_error_with_no_secondary_is_unresolved_without_retry():
-    groq = FakeProvider("groq", lambda n, p: (_ for _ in ()).throw(FakeHTTPError(429, "quota")))
+    groq = FakeProvider(
+        "groq", lambda n, p: (_ for _ in ()).throw(FakeHTTPError(429, "quota"))
+    )
 
     result = classify_line_item(
         "Some new line item", lookup={}, providers=[groq.as_provider()], sleep=_no_sleep
@@ -167,6 +178,7 @@ def test_transient_error_is_retried_once_then_succeeds():
 # Task B — szigeteles rule (deterministic guards)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "name,notes,llm,expected",
     [
@@ -182,7 +194,12 @@ def test_transient_error_is_retried_once_then_succeeds():
         ("Vízszigetelés", None, "szigeteles", REVIEW),
         ("Erkély vízszigetelés", None, "furdo", REVIEW),
         # genuine interior insulation -> stays szigeteles
-        ("Multipor hő-hang szigetelés folyósóval közös falra", None, "szigeteles", "szigeteles"),
+        (
+            "Multipor hő-hang szigetelés folyósóval közös falra",
+            None,
+            "szigeteles",
+            "szigeteles",
+        ),
         # no rule + invalid/absent LLM decision -> review (never guess)
         ("Valami ismeretlen", None, None, REVIEW),
         ("Valami ismeretlen", None, "nem_letezo_kategoria", REVIEW),
@@ -196,6 +213,7 @@ def test_enforce_szigeteles_rule(name, notes, llm, expected):
 # Task B — batched re-examination pipeline
 # ---------------------------------------------------------------------------
 
+
 def _reexam_response():
     return (
         '{"assignments": ['
@@ -203,7 +221,7 @@ def _reexam_response():
         '{"item_id": 1, "category_key": "furdo", "reason": "bathroom"},'
         '{"item_id": 2, "category_key": "furdo", "reason": "guessed bathroom"},'
         '{"item_id": 3, "category_key": "szigeteles", "reason": "interior"}'
-        ']}'
+        "]}"
     )
 
 
@@ -230,8 +248,12 @@ def test_reexamine_pipeline_enforces_rules():
 
 
 def test_reexamine_quota_fails_over_to_deepseek():
-    items = [SzigetelesItem("id0", "Multipor hő-hang szigetelés folyósóval közös falra")]
-    groq = FakeProvider("groq", lambda n, p: (_ for _ in ()).throw(FakeHTTPError(429, "quota")))
+    items = [
+        SzigetelesItem("id0", "Multipor hő-hang szigetelés folyósóval közös falra")
+    ]
+    groq = FakeProvider(
+        "groq", lambda n, p: (_ for _ in ()).throw(FakeHTTPError(429, "quota"))
+    )
     deepseek = FakeProvider("deepseek", lambda n, p: _reexam_response())
 
     results = reexamine_szigeteles_items(

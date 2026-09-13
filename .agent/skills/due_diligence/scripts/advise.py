@@ -5,9 +5,9 @@ Called by the orchestrator when the buyer asks for pre-purchase advisory.
 Reuses the same underlying implementation as mcp_server/server.py: get_due_diligence_advice.
 """
 
-import sys
 import json
 import os
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
@@ -16,13 +16,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from renovai.advisor.pre_purchase import generate_report, ApartmentProfile
-from renovai.rag.vector_store import VectorStoreConfig, RenovAIVectorStore
+from renovai.advisor.pre_purchase import ApartmentProfile, generate_report
+from renovai.ingestion.inflation_calc import load_price_index
 from renovai.rag.embedder import EmbedderConfig
-from renovai.rag.retriever import RetrievalConfig
 from renovai.rag.gemini_client import GeminiConfig
 from renovai.rag.pipeline import RAGPipeline
-from renovai.ingestion.inflation_calc import load_price_index
+from renovai.rag.retriever import RetrievalConfig
+from renovai.rag.vector_store import RenovAIVectorStore, VectorStoreConfig
 
 
 def run(
@@ -35,7 +35,9 @@ def run(
     api_key = os.getenv("GOOGLE_API_KEY", "")
 
     # Build RAG pipeline
-    vs_config = VectorStoreConfig(persist_dir=os.getenv("CHROMA_DB_PATH", "data/chroma_db"))
+    vs_config = VectorStoreConfig(
+        persist_dir=os.getenv("CHROMA_DB_PATH", "data/chroma_db")
+    )
     vector_store = RenovAIVectorStore(vs_config)
     emb_config = EmbedderConfig(api_key=api_key)
     ret_config = RetrievalConfig()

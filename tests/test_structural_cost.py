@@ -1,25 +1,25 @@
-import pytest
 from datetime import date
 from pathlib import Path
 
+import pytest
+
+from renovai.ingestion.inflation_calc import (
+    compound_inflation_factor,
+    load_price_index,
+)
 from renovai.predictor.structural_cost import (
-    ceiling_height_multiplier,
-    apply_height_surcharge,
-    detect_active_chains,
-    chain_total_cost,
-    apply_infrastructure_minimums,
-    compute_logistics_surcharge,
-    elevator_surcharge,
-    chimney_technician_cost,
     CHAIN_RULES,
-    ELECTRICAL_STANDARDIZATION_MINIMUM,
-    GAS_HEATING_INFRA_MINIMUM,
     CHIMNEY_TECHNICIAN_BASE,
     CHIMNEY_TECHNICIAN_PER_FLOOR,
-)
-from renovai.ingestion.inflation_calc import (
-    load_price_index,
-    compound_inflation_factor,
+    ELECTRICAL_STANDARDIZATION_MINIMUM,
+    apply_height_surcharge,
+    apply_infrastructure_minimums,
+    ceiling_height_multiplier,
+    chain_total_cost,
+    chimney_technician_cost,
+    compute_logistics_surcharge,
+    detect_active_chains,
+    elevator_surcharge,
 )
 
 
@@ -173,7 +173,11 @@ class TestInfrastructureMinimums:
     def test_no_override_when_estimate_above_minimum(self):
         low, mid, high = 5_000_000, 5_500_000, 6_000_000
         result_low, result_mid, result_high, logs = apply_infrastructure_minimums(
-            low, mid, high, is_full_renovation=True, has_gas_heating=True,
+            low,
+            mid,
+            high,
+            is_full_renovation=True,
+            has_gas_heating=True,
         )
         # Both shares above minimums: elec = 660k > 300k, heating = 1.1M > 800k
         assert result_mid == mid
@@ -182,7 +186,11 @@ class TestInfrastructureMinimums:
     def test_partial_renovation_no_mins(self):
         low, mid, high = 1_000_000, 1_200_000, 1_500_000
         result_low, result_mid, result_high, logs = apply_infrastructure_minimums(
-            low, mid, high, is_full_renovation=False, has_gas_heating=True,
+            low,
+            mid,
+            high,
+            is_full_renovation=False,
+            has_gas_heating=True,
         )
         assert result_mid == mid
         assert len(logs) == 0
@@ -190,17 +198,27 @@ class TestInfrastructureMinimums:
     def test_estimate_way_below_electrical_minimum(self):
         low, mid, high = 1_000_000, 1_200_000, 1_500_000
         result_low, result_mid, result_high, logs = apply_infrastructure_minimums(
-            low, mid, high, is_full_renovation=True, has_gas_heating=False,
+            low,
+            mid,
+            high,
+            is_full_renovation=True,
+            has_gas_heating=False,
         )
         # Electrical: 12% of 1.2M = 144k < 300k → override
-        expected_elec_override = ELECTRICAL_STANDARDIZATION_MINIMUM - int(1_200_000 * 0.12)
+        expected_elec_override = ELECTRICAL_STANDARDIZATION_MINIMUM - int(
+            1_200_000 * 0.12
+        )
         assert result_mid == mid + expected_elec_override
         assert any("Electrical min override" in log for log in logs)
 
     def test_gas_minimum_added_when_gas_heating(self):
         low, mid, high = 2_000_000, 2_500_000, 3_000_000
         result_low, result_mid, result_high, logs = apply_infrastructure_minimums(
-            low, mid, high, is_full_renovation=True, has_gas_heating=True,
+            low,
+            mid,
+            high,
+            is_full_renovation=True,
+            has_gas_heating=True,
         )
         has_gas_log = any("Gas/heating min override" in log for log in logs)
         # Heating share: 20% of 2.5M = 500k < 800k → override
@@ -289,8 +307,13 @@ class TestDatedStructuralInflation:
     def test_infra_minimum_as_of_source_date_matches_undated(self, price_index):
         low, mid, high = 100_000, 120_000, 150_000
         res_low, res_mid, res_high, logs = apply_infrastructure_minimums(
-            low, mid, high, is_full_renovation=True, has_gas_heating=False,
-            target_date=SOURCE_DATE, price_index=price_index,
+            low,
+            mid,
+            high,
+            is_full_renovation=True,
+            has_gas_heating=False,
+            target_date=SOURCE_DATE,
+            price_index=price_index,
         )
         expected_elec_delta = ELECTRICAL_STANDARDIZATION_MINIMUM - int(mid * 0.12)
         assert res_mid == mid + expected_elec_delta
@@ -299,12 +322,22 @@ class TestDatedStructuralInflation:
     def test_infra_minimum_inflated_today_vs_source(self, price_index):
         low, mid, high = 100_000, 120_000, 150_000
         _, today_mid, _, _ = apply_infrastructure_minimums(
-            low, mid, high, is_full_renovation=True, has_gas_heating=False,
-            target_date=date.today(), price_index=price_index,
+            low,
+            mid,
+            high,
+            is_full_renovation=True,
+            has_gas_heating=False,
+            target_date=date.today(),
+            price_index=price_index,
         )
         _, source_mid, _, _ = apply_infrastructure_minimums(
-            low, mid, high, is_full_renovation=True, has_gas_heating=False,
-            target_date=SOURCE_DATE, price_index=price_index,
+            low,
+            mid,
+            high,
+            is_full_renovation=True,
+            has_gas_heating=False,
+            target_date=SOURCE_DATE,
+            price_index=price_index,
         )
         expected_factor = _blended_factor(price_index, date.today())
         assert expected_factor > 1.0
@@ -312,19 +345,27 @@ class TestDatedStructuralInflation:
         today_delta = today_mid - mid
         source_delta = source_mid - mid
         electrical_share = int(mid * 0.12)
-        assert today_delta == int(round(ELECTRICAL_STANDARDIZATION_MINIMUM * expected_factor)) - electrical_share
+        assert (
+            today_delta
+            == int(round(ELECTRICAL_STANDARDIZATION_MINIMUM * expected_factor))
+            - electrical_share
+        )
         assert source_delta == ELECTRICAL_STANDARDIZATION_MINIMUM - electrical_share
         assert today_mid > source_mid
 
     def test_chain_cost_inflated_with_hand_computed_factor(self, price_index):
         chains = detect_active_chains({"windows_doors": True}, "1950")
         source_costs = chain_total_cost(
-            chains, area_sqm=55,
-            target_date=SOURCE_DATE, price_index=price_index,
+            chains,
+            area_sqm=55,
+            target_date=SOURCE_DATE,
+            price_index=price_index,
         )
         today_costs = chain_total_cost(
-            chains, area_sqm=55,
-            target_date=date.today(), price_index=price_index,
+            chains,
+            area_sqm=55,
+            target_date=date.today(),
+            price_index=price_index,
         )
         expected_factor = _blended_factor(price_index, date.today())
         assert expected_factor > 1.0
@@ -335,11 +376,18 @@ class TestDatedStructuralInflation:
     def test_chimney_inflated_with_hand_computed_factor(self, price_index):
         expected_factor = _blended_factor(price_index, date.today())
         assert expected_factor > 1.0
-        today_cost = chimney_technician_cost(3, target_date=date.today(), price_index=price_index)
-        source_cost = chimney_technician_cost(3, target_date=SOURCE_DATE, price_index=price_index)
-        expected = int(round(
-            (CHIMNEY_TECHNICIAN_BASE + 2 * CHIMNEY_TECHNICIAN_PER_FLOOR) * expected_factor
-        ))
+        today_cost = chimney_technician_cost(
+            3, target_date=date.today(), price_index=price_index
+        )
+        source_cost = chimney_technician_cost(
+            3, target_date=SOURCE_DATE, price_index=price_index
+        )
+        expected = int(
+            round(
+                (CHIMNEY_TECHNICIAN_BASE + 2 * CHIMNEY_TECHNICIAN_PER_FLOOR)
+                * expected_factor
+            )
+        )
         assert source_cost == CHIMNEY_TECHNICIAN_BASE + 2 * CHIMNEY_TECHNICIAN_PER_FLOOR
         assert today_cost == expected
         assert today_cost > source_cost

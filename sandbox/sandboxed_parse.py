@@ -20,20 +20,24 @@ Threat model:
     isolation with seccomp and no-network namespaces.
 """
 
-import sys
 import json
+import sys
 from pathlib import Path
 
 # Add project root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from renovai.ingestion.quote_parser import parse_quote
 from renovai.ingestion.models import RenovationQuote
+from renovai.ingestion.quote_parser import parse_quote
 
 
 def main():
     if len(sys.argv) < 3:
-        print(json.dumps({"error": "Usage: sandboxed_parse.py <xlsx_path> <output_json_path>"}))
+        print(
+            json.dumps(
+                {"error": "Usage: sandboxed_parse.py <xlsx_path> <output_json_path>"}
+            )
+        )
         sys.exit(1)
 
     xlsx_path = Path(sys.argv[1])

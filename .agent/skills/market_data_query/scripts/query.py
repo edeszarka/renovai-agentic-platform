@@ -5,10 +5,10 @@ Called by the orchestrator when the buyer asks aggregate market questions.
 Reuses the same underlying implementation as mcp_server/server.py: query_renovation_market.
 """
 
-import sys
+import asyncio
 import json
 import os
-import asyncio
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
@@ -17,8 +17,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from renovai.db.text_to_sql import TextToSQLEngine
 from renovai.db.session import get_engine, get_session_maker
+from renovai.db.text_to_sql import TextToSQLEngine
 
 
 async def run(question_hu: str) -> dict:
@@ -33,7 +33,13 @@ async def run(question_hu: str) -> dict:
         result = await t2s.query(question_hu, session)
 
     if "error" in result:
-        return {"question": question_hu, "sql": result.get("sql"), "rows": [], "row_count": 0, "error": result["error"]}
+        return {
+            "question": question_hu,
+            "sql": result.get("sql"),
+            "rows": [],
+            "row_count": 0,
+            "error": result["error"],
+        }
 
     return {
         "question": question_hu,

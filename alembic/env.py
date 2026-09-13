@@ -2,12 +2,10 @@ import asyncio
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from alembic import context
-from dotenv import load_dotenv
 
 # Load environment variables from .env
 load_dotenv()
@@ -31,6 +29,7 @@ from renovai.db.models import Base
 
 target_metadata = Base.metadata
 
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
@@ -44,13 +43,16 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
+
 def do_run_migrations(connection):
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
         context.run_migrations()
 
+
 from renovai.db.session import get_engine
+
 
 async def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
@@ -68,6 +70,7 @@ async def run_migrations_online() -> None:
         with connectable.connect() as connection:
             do_run_migrations(connection)
 
+
 if context.is_offline_mode():
     run_migrations_offline()
 else:
@@ -80,9 +83,11 @@ else:
             # This is tricky for a script, but for CLI it shouldn't happen usually
             # Just create a task if we are in a running loop
             import threading
+
             def run_in_new_loop():
                 new_loop = asyncio.new_event_loop()
                 new_loop.run_until_complete(run_migrations_online())
+
             t = threading.Thread(target=run_in_new_loop)
             t.start()
             t.join()

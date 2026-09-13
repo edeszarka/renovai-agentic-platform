@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
 from datetime import date, datetime
+from typing import List, Optional
+
+from pydantic import BaseModel
+
 
 class EstimateRequest(BaseModel):
     district: int
@@ -14,6 +16,7 @@ class EstimateRequest(BaseModel):
     suspected_slag: bool = False
     target_date: Optional[date] = None
 
+
 class EstimateResponse(BaseModel):
     estimate_low_huf: int
     estimate_mid_huf: int
@@ -22,6 +25,7 @@ class EstimateResponse(BaseModel):
     similar_cases: List[dict]
     model_confidence: str
     warning: Optional[str] = None
+
 
 class AdvisoryRequest(BaseModel):
     district: int
@@ -34,6 +38,7 @@ class AdvisoryRequest(BaseModel):
     has_seen_in_person: bool = False
     asking_price_million_huf: Optional[float] = None
 
+
 class AdvisoryResponse(BaseModel):
     questions_for_seller: List[dict]
     inspection_checklist: List[dict]
@@ -45,15 +50,18 @@ class AdvisoryResponse(BaseModel):
     sources_used: List[str]
     generated_at: datetime
 
+
 class QueryRequest(BaseModel):
     question: str
     district_filter: Optional[int] = None
     conversation_history: Optional[List[dict]] = []
 
+
 class QueryResponse(BaseModel):
     answer: str
     sources: List[str]
     confidence: str
+
 
 class HealthResponse(BaseModel):
     status: str
@@ -61,9 +69,11 @@ class HealthResponse(BaseModel):
     model_loaded: bool
     uptime_seconds: float
 
+
 class IngestRequest(BaseModel):
     quotes_dir: str = "data/raw/quotes/"
     adjust_inflation: bool = True
+
 
 class IngestResponse(BaseModel):
     task_id: str

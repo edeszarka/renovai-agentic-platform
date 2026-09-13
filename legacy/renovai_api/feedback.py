@@ -1,13 +1,12 @@
-import os
 import json
-import uuid
 import logging
-from pathlib import Path
+import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +17,7 @@ router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 # Schemas
 # ---------------------------------------------------------------------------
 
+
 class BuyerFeedback(BaseModel):
     """Feedback from a buyer comparing actual vs. estimated costs.
 
@@ -25,13 +25,18 @@ class BuyerFeedback(BaseModel):
     ConfidenceModel. If the estimate was significantly off, the
     confidence score for that profile type should be decreased.
     """
+
     trace_id: str = Field(..., description="Trace ID of the original estimate")
     estimated_low_huf: int | None = None
     estimated_mid_huf: int | None = None
     estimated_high_huf: int | None = None
-    actual_cost_huf: int | None = Field(None, description="What the buyer actually paid")
+    actual_cost_huf: int | None = Field(
+        None, description="What the buyer actually paid"
+    )
     accuracy_rating: int | None = Field(
-        None, ge=1, le=5,
+        None,
+        ge=1,
+        le=5,
         description="1 = way off, 5 = spot on",
     )
     comments_hu: str | None = None
@@ -46,12 +51,15 @@ class AdvisorFeedback(BaseModel):
     Used to fine-tune the red-flag detection and inspection checklist
     generation in the Due-Diligence Advisor.
     """
+
     trace_id: str = Field(..., description="Trace ID of the advisory session")
     red_flags_accurate: bool | None = Field(
-        None, description="Were the identified red flags correct?",
+        None,
+        description="Were the identified red flags correct?",
     )
     missed_red_flags: list[str] | None = Field(
-        None, description="Red flags the advisor missed",
+        None,
+        description="Red flags the advisor missed",
     )
     questions_for_seller_helpful: bool | None = None
     overall_rating: int | None = Field(None, ge=1, le=5)
@@ -60,6 +68,7 @@ class AdvisorFeedback(BaseModel):
 
 class FeedbackBatch(BaseModel):
     """Batch of feedback entries for efficient BigQuery ingestion."""
+
     entries: list[BuyerFeedback | AdvisorFeedback]
 
 
@@ -114,16 +123,18 @@ def _feedback_to_bigquery_rows(feedback_type: str) -> list[dict[str, Any]]:
     """
     rows = []
     for record in _read_feedback(feedback_type):
-        rows.append({
-            "_feedback_id": record.get("_feedback_id"),
-            "trace_id": record.get("trace_id", ""),
-            "feedback_type": feedback_type,
-            "payload": json.dumps(
-                {k: v for k, v in record.items() if not k.startswith("_")},
-                ensure_ascii=False,
-            ),
-            "_recorded_at": record.get("_recorded_at"),
-        })
+        rows.append(
+            {
+                "_feedback_id": record.get("_feedback_id"),
+                "trace_id": record.get("trace_id", ""),
+                "feedback_type": feedback_type,
+                "payload": json.dumps(
+                    {k: v for k, v in record.items() if not k.startswith("_")},
+                    ensure_ascii=False,
+                ),
+                "_recorded_at": record.get("_recorded_at"),
+            }
+        )
     return rows
 
 
@@ -136,7 +147,9 @@ def _feedback_to_bigquery_rows(feedback_type: str) -> list[dict[str, Any]]:
 async def submit_buyer_feedback(feedback: BuyerFeedback) -> dict[str, Any]:
     """Submit buyer feedback comparing actual vs. estimated costs."""
     try:
-        fb_id = _write_feedback(feedback.model_dump(exclude_none=True), "buyer_feedback")
+        fb_id = _write_feedback(
+            feedback.model_dump(exclude_none=True), "buyer_feedback"
+        )
         logger.info("[%s] Buyer feedback recorded: %s", feedback.trace_id, fb_id)
         return {"status": "ok", "feedback_id": fb_id}
     except Exception as exc:
@@ -148,7 +161,9 @@ async def submit_buyer_feedback(feedback: BuyerFeedback) -> dict[str, Any]:
 async def submit_advisor_feedback(feedback: AdvisorFeedback) -> dict[str, Any]:
     """Submit feedback on due-diligence advisor correctness."""
     try:
-        fb_id = _write_feedback(feedback.model_dump(exclude_none=True), "advisor_feedback")
+        fb_id = _write_feedback(
+            feedback.model_dump(exclude_none=True), "advisor_feedback"
+        )
         logger.info("[%s] Advisor feedback recorded: %s", feedback.trace_id, fb_id)
         return {"status": "ok", "feedback_id": fb_id}
     except Exception as exc:
@@ -162,9 +177,13 @@ async def submit_feedback_batch(batch: FeedbackBatch) -> dict[str, Any]:
     ids: list[str] = []
     for entry in batch.entries:
         if isinstance(entry, BuyerFeedback):
-            fb_id = _write_feedback(entry.model_dump(exclude_none=True), "buyer_feedback")
+            fb_id = _write_feedback(
+                entry.model_dump(exclude_none=True), "buyer_feedback"
+            )
         elif isinstance(entry, AdvisorFeedback):
-            fb_id = _write_feedback(entry.model_dump(exclude_none=True), "advisor_feedback")
+            fb_id = _write_feedback(
+                entry.model_dump(exclude_none=True), "advisor_feedback"
+            )
         else:
             continue
         ids.append(fb_id)

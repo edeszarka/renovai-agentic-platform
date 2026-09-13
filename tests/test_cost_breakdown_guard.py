@@ -6,6 +6,7 @@ Verifies that a pre-1970 + flooring scope correctly applies the
 empty chain_ids_applied for a scope that should trigger a known CHAIN_RULES
 entry) is caught by a loud ValidationError instead of silently returning 0.
 """
+
 import pytest
 from pydantic import ValidationError
 

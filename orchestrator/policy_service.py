@@ -10,14 +10,14 @@ Two-layer gate:
 Every check is logged with a trace_id for full auditability.
 """
 
+import json
+import logging
 import os
 import re
-import json
 import uuid
-import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from dataclasses import dataclass, field
 
 import yaml
 
@@ -30,9 +30,11 @@ logger = logging.getLogger(__name__)
 # Data models
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class PolicyCheckResult:
     """Result of a single policy check."""
+
     passed: bool
     reason: str
     trace_id: str
@@ -42,6 +44,7 @@ class PolicyCheckResult:
 @dataclass
 class PolicyEngine:
     """Loaded policy rules from policies.yaml."""
+
     roles: dict[str, Any] = field(default_factory=dict)
     structural_checks: list[dict[str, Any]] = field(default_factory=list)
     semantic_config: dict[str, Any] = field(default_factory=dict)
@@ -64,6 +67,7 @@ class PolicyEngine:
 # ---------------------------------------------------------------------------
 # Policy Service
 # ---------------------------------------------------------------------------
+
 
 class PolicyService:
     """
@@ -151,7 +155,7 @@ class PolicyService:
             return PolicyCheckResult(
                 passed=False,
                 reason=f"Agent identity expired at {identity.expires_at}. "
-                       f"Request a new JIT-downscoped token.",
+                f"Request a new JIT-downscoped token.",
                 trace_id=tid,
                 check_type="structural",
             )
@@ -161,9 +165,9 @@ class PolicyService:
                 passed=False,
                 reason=(
                     f"ABAC denied: identity '{identity.agent_id}' is not authorised "
-                    f"for action '{action}'" +
-                    (f" on resource '{resource}'" if resource else "") +
-                    f". Allowed actions: {identity.claims.get('allowed_actions', [])}"
+                    f"for action '{action}'"
+                    + (f" on resource '{resource}'" if resource else "")
+                    + f". Allowed actions: {identity.claims.get('allowed_actions', [])}"
                 ),
                 trace_id=tid,
                 check_type="structural",
@@ -171,7 +175,10 @@ class PolicyService:
 
         logger.info(
             "[%s] ABAC PASS: agent=%s action=%s resource=%s",
-            tid, identity.agent_id, action, resource,
+            tid,
+            identity.agent_id,
+            action,
+            resource,
         )
         return PolicyCheckResult(
             passed=True,
@@ -207,7 +214,8 @@ class PolicyService:
                     trace_id=tid,
                     check_type="structural",
                 ),
-                role, action,
+                role,
+                action,
             )
 
         # 2. Check if this action is explicitly forbidden
@@ -220,7 +228,8 @@ class PolicyService:
                     trace_id=tid,
                     check_type="structural",
                 ),
-                role, action,
+                role,
+                action,
             )
 
         # 3. Check if this action is in the allowlist
@@ -232,11 +241,12 @@ class PolicyService:
                 PolicyCheckResult(
                     passed=False,
                     reason=f"Role '{role}' does not have permission for action '{action}'. "
-                           f"Allowed actions: {allowed}",
+                    f"Allowed actions: {allowed}",
                     trace_id=tid,
                     check_type="structural",
                 ),
-                role, action,
+                role,
+                action,
             )
 
         # 4. Run action-specific structural checks from the rules list
@@ -246,11 +256,15 @@ class PolicyService:
                     return self._record_check(
                         PolicyCheckResult(
                             passed=False,
-                            reason=rule.get("deny_message", f"Role '{role}' not allowed for action '{action}'."),
+                            reason=rule.get(
+                                "deny_message",
+                                f"Role '{role}' not allowed for action '{action}'.",
+                            ),
                             trace_id=tid,
                             check_type="structural",
                         ),
-                        role, action,
+                        role,
+                        action,
                     )
                 # Check required fields (if the caller supplied them)
                 required = rule.get("required_fields", [])
@@ -261,7 +275,9 @@ class PolicyService:
 
         logger.info(
             "[%s] STRUCTURAL PASS: role=%s action=%s",
-            tid, role, action,
+            tid,
+            role,
+            action,
         )
         return self._record_check(
             PolicyCheckResult(
@@ -270,7 +286,8 @@ class PolicyService:
                 trace_id=tid,
                 check_type="structural",
             ),
-            role, action,
+            role,
+            action,
         )
 
     # -----------------------------------------------------------------------
@@ -303,17 +320,19 @@ class PolicyService:
         if pii_findings and semantic_cfg.get("pii_detection_enabled", True):
             logger.warning(
                 "[%s] SEMANTIC PII DETECTED (regex): %s",
-                tid, pii_findings,
+                tid,
+                pii_findings,
             )
             return self._record_check(
                 PolicyCheckResult(
                     passed=False,
                     reason=f"PII detected via regex patterns: {pii_findings}. "
-                           f"Arguments must be anonymized before tool execution.",
+                    f"Arguments must be anonymized before tool execution.",
                     trace_id=tid,
                     check_type="semantic",
                 ),
-                log_role, log_action,
+                log_role,
+                log_action,
             )
 
         # 2. LLM-based semantic check (if enabled and configured)
@@ -325,7 +344,8 @@ class PolicyService:
                     trace_id=tid,
                     check_type="semantic",
                 ),
-                log_role, log_action,
+                log_role,
+                log_action,
             )
 
         try:
@@ -333,14 +353,16 @@ class PolicyService:
             if not result.passed:
                 logger.warning(
                     "[%s] SEMANTIC BLOCKED: %s",
-                    tid, result.reason,
+                    tid,
+                    result.reason,
                 )
             return self._record_check(result, log_role, log_action)
         except Exception as exc:
             # Fallback: if LLM check fails, allow with warning
             logger.warning(
                 "[%s] SEMANTIC CHECK FAILED (allowing with warning): %s",
-                tid, exc,
+                tid,
+                exc,
             )
             return self._record_check(
                 PolicyCheckResult(
@@ -349,7 +371,8 @@ class PolicyService:
                     trace_id=tid,
                     check_type="semantic",
                 ),
-                log_role, log_action,
+                log_role,
+                log_action,
             )
 
     # -----------------------------------------------------------------------
@@ -439,7 +462,7 @@ class PolicyService:
             return PolicyCheckResult(
                 passed=False,
                 reason=f"Semantic violation detected: [{result.get('risk', 'unknown')}] "
-                       f"{result.get('category', 'unknown')} — {result.get('reason', 'No reason')}",
+                f"{result.get('category', 'unknown')} — {result.get('reason', 'No reason')}",
                 trace_id=trace_id,
                 check_type="semantic",
             )

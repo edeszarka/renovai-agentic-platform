@@ -1,28 +1,33 @@
-from typing import List, Optional, Literal
+from typing import List, Literal, Optional
+
 from pydantic import BaseModel
 
 CANONICAL_COLUMNS = {
-    "work_name":   ["Munkafolyamat", "Munka megnevezése"],
-    "material":    ["Anyag"],
-    "labor":       ["Munkadíj"],
-    "total":       ["Összesen", "Összsen"],       # handle typo
-    "notes":       ["Megjegyzés", "Megjegyzések", "Egyéb megjegyzések", "Egyéb megjegyzés"],
+    "work_name": ["Munkafolyamat", "Munka megnevezése"],
+    "material": ["Anyag"],
+    "labor": ["Munkadíj"],
+    "total": ["Összesen", "Összsen"],  # handle typo
+    "notes": ["Megjegyzés", "Megjegyzések", "Egyéb megjegyzések", "Egyéb megjegyzés"],
 }
 
+
 class ColumnMap(BaseModel):
-    work_name: int       # column index
-    material:  Optional[int] = None
-    labor:     Optional[int] = None
-    total:     Optional[int] = None
-    notes:     Optional[int] = None
-    style:     Literal["text_only", "standard_5col", "multi_phase", "scope_only"]
+    work_name: int  # column index
+    material: Optional[int] = None
+    labor: Optional[int] = None
+    total: Optional[int] = None
+    notes: Optional[int] = None
+    style: Literal["text_only", "standard_5col", "multi_phase", "scope_only"]
     header_row_index: int
+
 
 def detect_style_and_columns(rows: List[tuple]) -> ColumnMap:
     """Detects style and maps columns from XLSX rows."""
-    style: Literal["text_only", "standard_5col", "multi_phase", "scope_only"] = "standard_5col"
+    style: Literal["text_only", "standard_5col", "multi_phase", "scope_only"] = (
+        "standard_5col"
+    )
     header_row_index = 0
-    
+
     # 1. Find the first non-empty row
     first_row = None
     for i, row in enumerate(rows):
@@ -30,12 +35,17 @@ def detect_style_and_columns(rows: List[tuple]) -> ColumnMap:
             first_row = row
             header_row_index = i
             break
-    
+
     if first_row is None:
         raise ValueError("Workbook is empty")
 
     # 2. Check for multi_phase (Row 0 is a label)
-    if first_row[0] and isinstance(first_row[0], str) and first_row[0].startswith("Felújítás") and (len(first_row) < 2 or first_row[1] is None):
+    if (
+        first_row[0]
+        and isinstance(first_row[0], str)
+        and first_row[0].startswith("Felújítás")
+        and (len(first_row) < 2 or first_row[1] is None)
+    ):
         style = "multi_phase"
         # Real header should be in the next non-empty rows
         for i in range(header_row_index + 1, len(rows)):
@@ -43,7 +53,7 @@ def detect_style_and_columns(rows: List[tuple]) -> ColumnMap:
                 first_row = rows[i]
                 header_row_index = i
                 break
-    
+
     # 3. Map columns
     col_mapping = {}
     found_cols = 0
@@ -69,7 +79,7 @@ def detect_style_and_columns(rows: List[tuple]) -> ColumnMap:
                 if style != "multi_phase":
                     style = "standard_5col"
             else:
-                style = "scope_only" # handles reversed columns
+                style = "scope_only"  # handles reversed columns
         else:
             style = "scope_only"
 
@@ -80,5 +90,5 @@ def detect_style_and_columns(rows: List[tuple]) -> ColumnMap:
         total=col_mapping.get("total"),
         notes=col_mapping.get("notes"),
         style=style,
-        header_row_index=header_row_index
+        header_row_index=header_row_index,
     )

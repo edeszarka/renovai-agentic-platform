@@ -27,7 +27,7 @@ import os
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, Optional, Sequence
 
 from dotenv import load_dotenv
 from sqlalchemy import select
@@ -35,10 +35,10 @@ from sqlalchemy import select
 from renovai.db.models import LineItemORM
 from renovai.db.session import get_engine, get_session_maker
 from scripts.line_item_classifier import (
+    SzigetelesItem,
     default_providers,
     mentions_chimney_lining,
     reexamine_szigeteles_items,
-    SzigetelesItem,
 )
 
 load_dotenv()
@@ -102,7 +102,9 @@ async def reexamine(database_url: str, *, dry_run: bool = False) -> Dict[str, ob
             r.name_hu for r in results if r.final_category == "futes_rendszer"
         ],
         "moved_to_furdo": [r.name_hu for r in results if r.final_category == "furdo"],
-        "stayed_szigeteles": [r.name_hu for r in results if r.final_category == "szigeteles"],
+        "stayed_szigeteles": [
+            r.name_hu for r in results if r.final_category == "szigeteles"
+        ],
         "needs_human_review": review_items,
         "dry_run": dry_run,
     }
@@ -118,15 +120,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
     summary = asyncio.run(reexamine(args.database_url, dry_run=args.dry_run))
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
-    print(f"Re-examined {summary['total_reexamined']} items (dry_run={summary['dry_run']})")
-    for outcome, count in sorted(summary["outcome_counts"].items(), key=lambda kv: -kv[1]):
+    print(
+        f"Re-examined {summary['total_reexamined']} items (dry_run={summary['dry_run']})"
+    )
+    for outcome, count in sorted(
+        summary["outcome_counts"].items(), key=lambda kv: -kv[1]
+    ):
         print(f"  -> {outcome:<20} {count}")
     print(f"  tiers: {summary['tier_counts']}")
     print(f"Wrote {out_path}")

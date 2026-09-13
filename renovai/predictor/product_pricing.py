@@ -54,39 +54,60 @@ TILE_SIZES = ["60x30", "60x60", "60x120", "80x80", "90x90", "120x120", "100x280"
 
 TILE_PRICES: Dict[str, Dict[str, PriceRange]] = {
     "60x30": {
-        "also": (4_000, 6_000), "also_kozep": (5_000, 7_000),
-        "kozep_kozep": (7_000, 9_000), "felso_kozep": (10_000, 12_000),
-        "premium": (12_000, 13_000), "luxus": (None, None),
+        "also": (4_000, 6_000),
+        "also_kozep": (5_000, 7_000),
+        "kozep_kozep": (7_000, 9_000),
+        "felso_kozep": (10_000, 12_000),
+        "premium": (12_000, 13_000),
+        "luxus": (None, None),
     },
     "60x60": {
-        "also": (5_000, 7_000), "also_kozep": (5_000, 7_000),
-        "kozep_kozep": (7_000, 9_000), "felso_kozep": (10_000, 13_000),
-        "premium": (11_000, 15_000), "luxus": (18_000, None),
+        "also": (5_000, 7_000),
+        "also_kozep": (5_000, 7_000),
+        "kozep_kozep": (7_000, 9_000),
+        "felso_kozep": (10_000, 13_000),
+        "premium": (11_000, 15_000),
+        "luxus": (18_000, None),
     },
     "60x120": {
-        "also": (7_000, 8_000), "also_kozep": (7_000, 8_000),
-        "kozep_kozep": (10_000, 11_000), "felso_kozep": (12_000, 14_000),
-        "premium": (15_000, 20_000), "luxus": (20_000, 25_000),
+        "also": (7_000, 8_000),
+        "also_kozep": (7_000, 8_000),
+        "kozep_kozep": (10_000, 11_000),
+        "felso_kozep": (12_000, 14_000),
+        "premium": (15_000, 20_000),
+        "luxus": (20_000, 25_000),
     },
     "80x80": {
-        "also": (None, None), "also_kozep": (None, None),
-        "kozep_kozep": (None, None), "felso_kozep": (None, None),
-        "premium": (15_000, 18_000), "luxus": (20_000, None),
+        "also": (None, None),
+        "also_kozep": (None, None),
+        "kozep_kozep": (None, None),
+        "felso_kozep": (None, None),
+        "premium": (15_000, 18_000),
+        "luxus": (20_000, None),
     },
     "90x90": {
-        "also": (None, None), "also_kozep": (None, None),
-        "kozep_kozep": (None, None), "felso_kozep": (None, None),
-        "premium": (15_000, 20_000), "luxus": (22_000, 25_000),
+        "also": (None, None),
+        "also_kozep": (None, None),
+        "kozep_kozep": (None, None),
+        "felso_kozep": (None, None),
+        "premium": (15_000, 20_000),
+        "luxus": (22_000, 25_000),
     },
     "120x120": {
-        "also": (None, None), "also_kozep": (None, None),
-        "kozep_kozep": (None, None), "felso_kozep": (None, None),
-        "premium": (20_000, 35_000), "luxus": (30_000, 35_000),
+        "also": (None, None),
+        "also_kozep": (None, None),
+        "kozep_kozep": (None, None),
+        "felso_kozep": (None, None),
+        "premium": (20_000, 35_000),
+        "luxus": (30_000, 35_000),
     },
     "100x280": {
-        "also": (None, None), "also_kozep": (None, None),
-        "kozep_kozep": (None, None), "felso_kozep": (None, None),
-        "premium": (120_000, 180_000), "luxus": (180_000, 200_000),
+        "also": (None, None),
+        "also_kozep": (None, None),
+        "kozep_kozep": (None, None),
+        "felso_kozep": (None, None),
+        "premium": (120_000, 180_000),
+        "luxus": (180_000, 200_000),
     },
 }
 
@@ -111,12 +132,12 @@ XPS_UNDERLAY_PRICES: Dict[str, PriceRange] = {
 # Unit: total package HUF by tier. Non-chrome fixtures = +20-60%.
 # ---------------------------------------------------------------------------
 SANITARY_PRICES: Dict[str, PriceRange] = {
-    "also": (350_000, 450_000),   # rozsdamentes acél mosogató
+    "also": (350_000, 450_000),  # rozsdamentes acél mosogató
     "also_kozep": (400_000, 500_000),  # gránit mosogató
     "kozep_kozep": (450_000, 550_000),
     "felso_kozep": (550_000, 700_000),
     "premium": (700_000, 1_000_000),
-    "luxus": (1_000_000, None),    # open-ended
+    "luxus": (1_000_000, None),  # open-ended
 }
 
 # Non-chrome fixture surcharge (+20-60%).
@@ -215,39 +236,60 @@ APPLIANCE_NAMES = [
 
 APPLIANCE_PRICES: Dict[str, Dict[str, PriceRange]] = {
     "hob_fozolap": {
-        "also": (45_000, 55_000), "also_kozep": (55_000, 65_000),
-        "kozep_kozep": (65_000, 85_000), "felso_kozep": (90_000, 120_000),
-        "premium": (120_000, 180_000), "luxus": (250_000, None),
+        "also": (45_000, 55_000),
+        "also_kozep": (55_000, 65_000),
+        "kozep_kozep": (65_000, 85_000),
+        "felso_kozep": (90_000, 120_000),
+        "premium": (120_000, 180_000),
+        "luxus": (250_000, None),
     },
     "oven_suto": {
-        "also": (60_000, 90_000), "also_kozep": (90_000, 110_000),
-        "kozep_kozep": (110_000, 130_000), "felso_kozep": (130_000, 170_000),
-        "premium": (180_000, 220_000), "luxus": (250_000, None),
+        "also": (60_000, 90_000),
+        "also_kozep": (90_000, 110_000),
+        "kozep_kozep": (110_000, 130_000),
+        "felso_kozep": (130_000, 170_000),
+        "premium": (180_000, 220_000),
+        "luxus": (250_000, None),
     },
     "dishwasher_mosogatogep": {
-        "also": (100_000, 120_000), "also_kozep": (100_000, 120_000),
-        "kozep_kozep": (120_000, 140_000), "felso_kozep": (140_000, 180_000),
-        "premium": (180_000, 250_000), "luxus": (250_000, None),
+        "also": (100_000, 120_000),
+        "also_kozep": (100_000, 120_000),
+        "kozep_kozep": (120_000, 140_000),
+        "felso_kozep": (140_000, 180_000),
+        "premium": (180_000, 250_000),
+        "luxus": (250_000, None),
     },
     "range_hood_szagelszivo": {
-        "also": (25_000, 35_000), "also_kozep": (30_000, 40_000),
-        "kozep_kozep": (35_000, 45_000), "felso_kozep": (40_000, 55_000),
-        "premium": (80_000, 150_000), "luxus": (200_000, None),
+        "also": (25_000, 35_000),
+        "also_kozep": (30_000, 40_000),
+        "kozep_kozep": (35_000, 45_000),
+        "felso_kozep": (40_000, 55_000),
+        "premium": (80_000, 150_000),
+        "luxus": (200_000, None),
     },
     "refrigerator_huto": {
-        "also": (120_000, 150_000), "also_kozep": (120_000, 150_000),
-        "kozep_kozep": (140_000, 180_000), "felso_kozep": (160_000, 220_000),
-        "premium": (200_000, 260_000), "luxus": (250_000, None),
+        "also": (120_000, 150_000),
+        "also_kozep": (120_000, 150_000),
+        "kozep_kozep": (140_000, 180_000),
+        "felso_kozep": (160_000, 220_000),
+        "premium": (200_000, 260_000),
+        "luxus": (250_000, None),
     },
     "washing_machine_mosogep": {
-        "also": (110_000, 130_000), "also_kozep": (120_000, 140_000),
-        "kozep_kozep": (130_000, 160_000), "felso_kozep": (150_000, 190_000),
-        "premium": (200_000, 300_000), "luxus": (250_000, None),
+        "also": (110_000, 130_000),
+        "also_kozep": (120_000, 140_000),
+        "kozep_kozep": (130_000, 160_000),
+        "felso_kozep": (150_000, 190_000),
+        "premium": (200_000, 300_000),
+        "luxus": (250_000, None),
     },
     "microwave_mikro": {
-        "also": (18_000, 25_000), "also_kozep": (25_000, 30_000),
-        "kozep_kozep": (30_000, 40_000), "felso_kozep": (70_000, 100_000),
-        "premium": (80_000, 120_000), "luxus": (150_000, None),
+        "also": (18_000, 25_000),
+        "also_kozep": (25_000, 30_000),
+        "kozep_kozep": (30_000, 40_000),
+        "felso_kozep": (70_000, 100_000),
+        "premium": (80_000, 120_000),
+        "luxus": (150_000, None),
     },
 }
 
@@ -330,8 +372,14 @@ def lookup(category: str, tier: str, **kwargs: Optional[str]) -> PriceRange:
         door_type = kwargs.get("door_type")
         glass = kwargs.get("glass", "without_glass")
         if door_type not in DOOR_TYPES:
-            raise KeyError(f"Unknown door type: {door_type!r}. Valid: {list(DOOR_TYPES)}")
-        variant = "with_glass" if glass in ("with_glass", True, "true", "with") else "without_glass"
+            raise KeyError(
+                f"Unknown door type: {door_type!r}. Valid: {list(DOOR_TYPES)}"
+            )
+        variant = (
+            "with_glass"
+            if glass in ("with_glass", True, "true", "with")
+            else "without_glass"
+        )
         return DOOR_TYPES[door_type][variant]["door"]
 
     if cat == "lamp":
@@ -343,10 +391,14 @@ def lookup(category: str, tier: str, **kwargs: Optional[str]) -> PriceRange:
     if cat == "appliance":
         appliance = kwargs.get("appliance")
         if appliance not in APPLIANCE_PRICES:
-            raise KeyError(f"Unknown appliance: {appliance!r}. Valid: {APPLIANCE_NAMES}")
+            raise KeyError(
+                f"Unknown appliance: {appliance!r}. Valid: {APPLIANCE_NAMES}"
+            )
         return APPLIANCE_PRICES[appliance][tier]
 
-    raise KeyError(f"Unknown product category: {category!r}. Valid: tile, laminate, sanitary, door, lamp, kitchen, appliance")
+    raise KeyError(
+        f"Unknown product category: {category!r}. Valid: tile, laminate, sanitary, door, lamp, kitchen, appliance"
+    )
 
 
 def xps_underlay(thickness: str = "3mm") -> PriceRange:
@@ -365,5 +417,9 @@ def door_install(door_type: str, glass: str = "without_glass") -> PriceRange:
     """
     if door_type not in DOOR_TYPES:
         raise KeyError(f"Unknown door type: {door_type!r}. Valid: {list(DOOR_TYPES)}")
-    variant = "with_glass" if glass in ("with_glass", True, "true", "with") else "without_glass"
+    variant = (
+        "with_glass"
+        if glass in ("with_glass", True, "true", "with")
+        else "without_glass"
+    )
     return DOOR_TYPES[door_type][variant]["install"]

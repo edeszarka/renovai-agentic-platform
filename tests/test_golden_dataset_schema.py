@@ -6,12 +6,15 @@ calculation pipeline can answer these cases yet — that logic lands in Menet 2
 (CHAIN_RULES expansion). This test only guarantees the data is structurally
 well-formed so the eval harness can consume it later.
 """
+
 import json
 from pathlib import Path
 
 import pytest
 
-GOLDEN_DATASET_PATH = Path(__file__).resolve().parents[1] / "renovai" / "evals" / "golden_dataset.json"
+GOLDEN_DATASET_PATH = (
+    Path(__file__).resolve().parents[1] / "renovai" / "evals" / "golden_dataset.json"
+)
 
 REQUIRED_CASE_KEYS = {"case_id", "input", "expected_output", "rubric"}
 REQUIRED_INPUT_KEYS = {"question_hu", "params"}
@@ -53,7 +56,9 @@ def test_exact_case_count(golden_dataset):
 
 def test_no_duplicate_case_ids(golden_dataset):
     ids = [case["case_id"] for case in golden_dataset]
-    assert len(ids) == len(set(ids)), f"duplicate case_ids: {[i for i in set(ids) if ids.count(i) > 1]}"
+    assert len(ids) == len(set(ids)), (
+        f"duplicate case_ids: {[i for i in set(ids) if ids.count(i) > 1]}"
+    )
 
 
 def test_all_doc03_expansion_cases_present(golden_dataset):
@@ -63,7 +68,9 @@ def test_all_doc03_expansion_cases_present(golden_dataset):
 
 def test_all_cases_have_required_keys(golden_dataset):
     for case in golden_dataset:
-        assert REQUIRED_CASE_KEYS <= set(case), f"{case['case_id']}: missing {REQUIRED_CASE_KEYS - set(case)}"
+        assert REQUIRED_CASE_KEYS <= set(case), (
+            f"{case['case_id']}: missing {REQUIRED_CASE_KEYS - set(case)}"
+        )
         assert REQUIRED_INPUT_KEYS <= set(case["input"]), (
             f"{case['case_id']}: missing input keys {REQUIRED_INPUT_KEYS - set(case['input'])}"
         )
@@ -72,7 +79,9 @@ def test_all_cases_have_required_keys(golden_dataset):
 def test_rubric_is_nonempty_list_of_strings(golden_dataset):
     for case in golden_dataset:
         rubric = case["rubric"]
-        assert isinstance(rubric, list) and rubric, f"{case['case_id']}: rubric must be a non-empty list"
+        assert isinstance(rubric, list) and rubric, (
+            f"{case['case_id']}: rubric must be a non-empty list"
+        )
         assert all(isinstance(item, str) and item for item in rubric), (
             f"{case['case_id']}: rubric items must be non-empty strings"
         )
@@ -80,7 +89,9 @@ def test_rubric_is_nonempty_list_of_strings(golden_dataset):
 
 def test_params_is_dict(golden_dataset):
     for case in golden_dataset:
-        assert isinstance(case["input"]["params"], dict), f"{case['case_id']}: params must be a dict"
+        assert isinstance(case["input"]["params"], dict), (
+            f"{case['case_id']}: params must be a dict"
+        )
 
 
 def test_huf_ranges_are_well_formed(golden_dataset):
@@ -99,12 +110,18 @@ def _assert_huf_pairs(node, path):
     for key, value in node.items():
         child_path = f"{path}.{key}"
         if key.endswith("_huf_min") or key.endswith("_huf_max"):
-            assert isinstance(value, int), f"{child_path}: must be an int, got {value!r}"
+            assert isinstance(value, int), (
+                f"{child_path}: must be an int, got {value!r}"
+            )
         if key.endswith("_huf_min"):
             max_key = key[:-4] + "_max"
             if max_key in node:
-                assert isinstance(node[max_key], int), f"{path}.{max_key}: must be an int"
-                assert value <= node[max_key], f"{path}: {key} ({value}) > {max_key} ({node[max_key]})"
+                assert isinstance(node[max_key], int), (
+                    f"{path}.{max_key}: must be an int"
+                )
+                assert value <= node[max_key], (
+                    f"{path}: {key} ({value}) > {max_key} ({node[max_key]})"
+                )
         else:
             _assert_huf_pairs(value, child_path)
 

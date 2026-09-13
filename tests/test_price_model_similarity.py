@@ -9,13 +9,14 @@ Coverage added by the Task 2 self-verification pass:
   taxonomy categories that share a substring (``tegla`` vs
   ``teglacsaladihaz``).
 """
+
 import numpy as np
 
 from renovai.db.models import BuildingType as BT
 from renovai.predictor.price_model import (
+    _weighted_mean,
     building_type_similarity,
     era_similarity,
-    _weighted_mean,
 )
 
 

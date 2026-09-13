@@ -1,6 +1,6 @@
 import json
-import uuid
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,7 +23,9 @@ class AuditEntry:
 
     entry_id: str
     trace_id: str
-    action_type: str               # "cost_estimation" | "due_diligence" | "ingestion" | "market_query"
+    action_type: (
+        str  # "cost_estimation" | "due_diligence" | "ingestion" | "market_query"
+    )
     user_intent: str
     agent_response_summary: str
     confidence_score: float
@@ -32,14 +34,16 @@ class AuditEntry:
     human_reviewer: str | None
     structural_check_passed: bool
     semantic_check_passed: bool
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     # Per-policy-check context (added for per-check audit entries; all default
     # to None so pre-existing request-level entries remain fully loadable).
     role: str | None = None
     action: str | None = None
     resource: str | None = None
-    decision: str | None = None     # "allow" | "deny"
+    decision: str | None = None  # "allow" | "deny"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -91,7 +95,11 @@ class AuditStore:
 
     def __init__(self, path: str | Path | None = None):
         if path is None:
-            path = Path(__file__).resolve().parent.parent.parent / "data" / "audit_trail.jsonl"
+            path = (
+                Path(__file__).resolve().parent.parent.parent
+                / "data"
+                / "audit_trail.jsonl"
+            )
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -161,7 +169,9 @@ class AuditStore:
             vibe_diff_id=None,
             human_approval_timestamp=None,
             human_reviewer=None,
-            structural_check_passed=(check_type == "structural" and decision == "allow"),
+            structural_check_passed=(
+                check_type == "structural" and decision == "allow"
+            ),
             semantic_check_passed=(check_type == "semantic" and decision == "allow"),
             role=role,
             action=action,
