@@ -70,3 +70,11 @@ ignore = ["E402", "E701", "E731", "E741", "F541", "F811", "F821", "F841"]
 "orchestrator/handlers.py" = ["F401"]
 "app/streamlit_app.py" = ["F401"]
 "renovai/predictor/price_model.py" = ["F841"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+explicit_package_bases = true
+pretty = false
+show_error_codes = true
+exclude = ['^legacy/', '^\.agent/', '^scripts/refactor\.py$']
