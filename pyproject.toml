@@ -52,6 +52,9 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "requires_local_corpus: test needs ignored, locally generated quote data",
+]
 
 [tool.ruff]
 target-version = "py311"

@@ -301,6 +301,7 @@ def price_index():
     return load_price_index(mat_path, lab_path)
 
 
+@pytest.mark.requires_local_corpus
 class TestDatedStructuralInflation:
     """Item F: structural add-ons get their own 2025 -> today inflation."""
 

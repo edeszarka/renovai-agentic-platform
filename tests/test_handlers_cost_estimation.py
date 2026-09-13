@@ -24,6 +24,8 @@ from renovai.predictor.feature_extractor import (
     apartment_input_to_features,
 )
 
+pytestmark = pytest.mark.requires_local_corpus
+
 DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
 # The DB must exist with seeded quotes for scope_matched_estimate() to run.

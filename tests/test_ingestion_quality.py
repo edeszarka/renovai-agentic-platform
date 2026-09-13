@@ -4,6 +4,10 @@ Generated: 2026-07-10T17:13:37.662762
 
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.requires_local_corpus
+
 from renovai.ingestion.models import RenovationQuote
 from renovai.ingestion.quote_parser import parse_quote
 

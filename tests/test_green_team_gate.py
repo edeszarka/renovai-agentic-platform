@@ -67,6 +67,7 @@ def realistic_params(**overrides) -> dict:
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_local_corpus
 async def test_cost_estimation_low_similarity_surfaces_needs_intervention(monkeypatch):
     """When fewer than 3 similar corpus quotes are found (the exact condition
     the handler's existing warning logic already flags as data scarcity),

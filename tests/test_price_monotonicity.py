@@ -19,6 +19,8 @@ from renovai.ingestion.inflation_calc import load_price_index
 from renovai.predictor.feature_extractor import ApartmentInput
 from renovai.predictor.price_model import scope_matched_estimate
 
+pytestmark = pytest.mark.requires_local_corpus
+
 DB_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/renovai.db")
 DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
