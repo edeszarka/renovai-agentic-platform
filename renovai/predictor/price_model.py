@@ -292,12 +292,20 @@ async def scope_matched_estimate(
     price_index: PriceIndex,
     target_date: date,
     include_breakdown: bool = True,
+    category_column: str = "category_key",
 ) -> Optional[dict]:
     """Estimates renovation cost using price-per-m² normalization.
 
     For every historical quote, computes scope-level cost per square meter,
     averages in per-sqm space, then multiplies by the query area.
     This makes area the dominant cost driver instead of a post-hoc scaling factor.
+
+    ``category_column`` selects which ``LineItemORM`` category column the scope
+    matching reads. It defaults to the legacy ``category_key`` and keeps the
+    original exact-match behavior bit-for-bit. Passing ``"category_key_v2"``
+    reads the canonical ASCII taxonomy: because ``SCOPE_CATEGORY_MAP`` holds the
+    accented legacy keys, the stored value and those keys are accent-folded so
+    the same seven scope definitions apply (e.g. ``víz_fűtés`` ↔ ``viz_futes``).
 
     Returns same dict shape as predict() — estimate_low/mid/high_huf + debug.
     Guarantees: more selected scopes → higher estimate.
@@ -330,6 +338,21 @@ async def scope_matched_estimate(
         scope_entries[scope_name] = []
         scope_line_items[scope_name] = 0
 
+    # Resolve the per-scope key sets for the requested category column. The
+    # default column keeps the original exact match; any other column (the
+    # canonical category_key_v2) is matched accent-insensitively so the accented
+    # legacy keys in SCOPE_CATEGORY_MAP still line up with ASCII keys.
+    fold_category = category_column != "category_key"
+    _category_accent_map = str.maketrans("áéíóöőúüű", "aeiooouuu")
+    scope_keys: Dict[str, Set[str]] = {}
+    for scope_name, info in SCOPE_CATEGORY_MAP.items():
+        if fold_category:
+            scope_keys[scope_name] = {
+                k.strip().lower().translate(_category_accent_map) for k in info["keys"]
+            }
+        else:
+            scope_keys[scope_name] = set(info["keys"])
+
     for q in quotes:
         total = q.grand_total_adjusted_huf or q.grand_total_huf
         if not total:
@@ -344,8 +367,13 @@ async def scope_matched_estimate(
         for li in q.line_items:
             if not li.total_cost_huf:
                 continue
-            for scope_name, info in SCOPE_CATEGORY_MAP.items():
-                if li.category_key in info["keys"]:
+            category_value = getattr(li, category_column, None)
+            if fold_category and category_value is not None:
+                category_value = (
+                    category_value.strip().lower().translate(_category_accent_map)
+                )
+            for scope_name in SCOPE_CATEGORY_MAP:
+                if category_value in scope_keys[scope_name]:
                     scope_line_total[scope_name] = (
                         scope_line_total.get(scope_name, 0) + li.total_cost_huf
                     )
