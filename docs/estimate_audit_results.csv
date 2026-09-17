@@ -1,0 +1,6 @@
+quote_id,file_name,category,scope,label,ground_truth_huf,estimate_huf,deviation_pct,flag,flag_note,data_quality,fallback_used,cost_tracking
+1228e806-51a4-4038-8e41-479c2ef28747,"komplett, 1958 építés éve, van salak, 58nm.xlsx",needs_plumbing,needs_plumbing,Plumbing & Heating,1400000,1231030,-12.069,ALULBECSÜLT,,sufficient,False,split
+1228e806-51a4-4038-8e41-479c2ef28747,"komplett, 1958 építés éve, van salak, 58nm.xlsx",needs_electrical,needs_electrical,Electrical,42000,1377466,3179.681,TÚLBECSÜLT,,sufficient,False,split
+1228e806-51a4-4038-8e41-479c2ef28747,"komplett, 1958 építés éve, van salak, 58nm.xlsx",needs_flooring,needs_flooring,Flooring/Tiling,899110,1130670,25.754,TÚLBECSÜLT,,sufficient,False,split
+1228e806-51a4-4038-8e41-479c2ef28747,"komplett, 1958 építés éve, van salak, 58nm.xlsx",needs_full_demolition,needs_full_demolition,Demolition,720000,946532,31.463,TÚLBECSÜLT,,sufficient,False,split
+1228e806-51a4-4038-8e41-479c2ef28747,"komplett, 1958 építés éve, van salak, 58nm.xlsx",needs_windows_doors,needs_windows_doors,Windows & Doors,240990,655920,172.177,TÚLBECSÜLT,,sufficient,False,split
